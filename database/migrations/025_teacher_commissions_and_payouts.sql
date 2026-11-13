@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS teacher_course_assignments (
   branch_id BIGINT UNSIGNED NULL,
   commission_percentage DECIMAL(5,2) NOT NULL DEFAULT 60.00,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  unassigned_at DATETIME NULL,
   assigned_by BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,

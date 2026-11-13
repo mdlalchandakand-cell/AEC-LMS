@@ -44,8 +44,10 @@ if ($action === 'my_students') {
         FROM guardian_student_links l
         JOIN users u ON u.id = l.student_user_id
         WHERE l.guardian_user_id = ? AND l.status IN ('pending','active')
+          AND u.branch_id <=> ?
+          AND (u.branch_id IS NULL OR EXISTS (SELECT 1 FROM branches b WHERE b.id = u.branch_id AND b.is_active = 1))
         ORDER BY l.requested_at DESC");
-    $stmt->execute([(int)$actor['id']]);
+    $stmt->execute([(int)$actor['id'], $actor['branch_id'] === null ? null : (int)$actor['branch_id']]);
     aec_ok($stmt->fetchAll());
 }
 
@@ -159,6 +161,7 @@ if ($action === 'summary') {
     $profileStmt->execute([$studentId]);
     $profile = $profileStmt->fetch();
     if (!$profile) aec_fail('Student account is unavailable.', 404);
+    aec_guardian_same_branch($actor, $profile);
 
     $coursesStmt = $db->prepare("SELECT ce.id, ce.course_id, c.title AS course_title, ce.status, ce.enrolled_at, ce.starts_at, ce.ends_at
         FROM course_enrollments ce JOIN courses c ON c.id = ce.course_id
@@ -203,7 +206,8 @@ if ($action === 'list') {
     $params = [];
     if ($actor['role'] === 'branch_manager') {
         if (empty($actor['branch_id'])) aec_fail('Your account is not assigned to a branch.', 403);
-        $where[] = 'g.branch_id = ?';
+        $where[] = 'g.branch_id = ? AND s.branch_id = ?';
+        $params[] = (int)$actor['branch_id'];
         $params[] = (int)$actor['branch_id'];
     }
     if ($status !== '') { $where[] = 'l.status = ?'; $params[] = $status; }

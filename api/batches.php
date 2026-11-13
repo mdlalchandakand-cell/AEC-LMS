@@ -175,9 +175,14 @@ if ($action === 'enroll' || $action === 'unenroll') {
         $courseEnrollment = $db->prepare("SELECT id FROM course_enrollments WHERE user_id = ? AND course_id = ? AND status IN ('active','completed') LIMIT 1");
         $courseEnrollment->execute([$studentId, (int)$batch['course_id']]);
         if (!$courseEnrollment->fetchColumn()) aec_fail('Student must have an active course enrollment before joining this batch.', 409);
-        $count = $db->prepare("SELECT COUNT(*) FROM batch_enrollments WHERE batch_id = ? AND status = 'active'");
-        $count->execute([$batchId]);
-        if ((int)$count->fetchColumn() >= (int)$batch['max_capacity']) aec_fail('Batch capacity has been reached.', 409);
+        $existingEnrollment = $db->prepare('SELECT status FROM batch_enrollments WHERE batch_id = ? AND user_id = ? FOR UPDATE');
+        $existingEnrollment->execute([$batchId, $studentId]);
+        $existingStatus = $existingEnrollment->fetchColumn();
+        if ($existingStatus !== 'active') {
+            $count = $db->prepare("SELECT COUNT(*) FROM batch_enrollments WHERE batch_id = ? AND status = 'active'");
+            $count->execute([$batchId]);
+            if ((int)$count->fetchColumn() >= (int)$batch['max_capacity']) aec_fail('Batch capacity has been reached.', 409);
+        }
         $db->prepare("INSERT INTO batch_enrollments (batch_id, user_id, branch_id, status, enrolled_by) VALUES (?, ?, ?, 'active', ?) ON DUPLICATE KEY UPDATE status = 'active', enrolled_by = VALUES(enrolled_by), enrolled_at = NOW(), updated_at = NOW()")
             ->execute([$batchId, $studentId, $batch['branch_id'], (int)$actor['id']]);
         aec_batch_audit($db, $actor, 'batch.student_enrolled', $batchId, ['student_user_id' => $studentId]);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
-import { Trash2, RotateCcw, AlertTriangle, ShieldCheck, Clock, Search, RefreshCw, FileText, Layers, BookOpen, XCircle, AlertCircle } from 'lucide-react';
+import { Trash2, RotateCcw, AlertTriangle, ShieldCheck, Search, RefreshCw, FileText, Layers, BookOpen, AlertCircle } from 'lucide-react';
 
 type RecycleItem = {
   id: number; entity_type: string; entity_id: number; title: string;
@@ -115,7 +115,7 @@ export const RecycleBinManager: React.FC = () => {
           { key:'batch', label:isBn?'ব্যাচ':'Batches', value:counts.batch, icon:Layers },
           { key:'exam', label:isBn?'পরীক্ষা':'Exams', value:counts.exam, icon:FileText },
           { key:'cms', label:isBn?'ওয়েবসাইট':'Website', value:counts.cms, icon:FileText },
-        ].map(card => <button key={card.key} onClick={() => setFilterType(card.key === 'cms' ? 'cms_post' : card.key)} className={`bg-white rounded-xl border p-4 text-left ${filterType === card.key ? 'border-blue-500 ring-1 ring-blue-100' : 'border-slate-200'}`}><card.icon className="w-4 h-4 text-slate-500" /><div className="text-xl font-extrabold mt-2">{card.value}</div><div className="text-[10px] text-slate-500">{card.label}</div></button>)}
+        ].map(card => <button key={card.key} onClick={() => setFilterType(card.key === 'cms' ? 'cms_post' : card.key)} className={`bg-white rounded-xl border p-4 text-left ${(filterType === card.key || (card.key === 'cms' && ['cms_post','cms_testimonial'].includes(filterType))) ? 'border-blue-500 ring-1 ring-blue-100' : 'border-slate-200'}`}><card.icon className="w-4 h-4 text-slate-500" /><div className="text-xl font-extrabold mt-2">{card.value}</div><div className="text-[10px] text-slate-500">{card.label}</div></button>)}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-4">

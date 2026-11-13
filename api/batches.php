@@ -271,6 +271,29 @@ if ($action === 'eligible_students') {
     aec_ok($stmt->fetchAll());
 }
 
+if ($action === 'eligible_students') {
+    aec_method(['GET']);
+    $actor = aec_require_permission('batches.manage');
+    aec_assert_active_branch($db, $actor);
+    $batchId = filter_input(INPUT_GET, 'batch_id', FILTER_VALIDATE_INT);
+    if (!$batchId || $batchId < 1) aec_fail('A valid batch_id is required.', 422);
+    $batchStmt = $db->prepare('SELECT course_id, branch_id FROM batches WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+    $batchStmt->execute([$batchId]); $batch = $batchStmt->fetch();
+    if (!$batch) aec_fail('Batch not found.', 404);
+    aec_batch_branch_check($db, $actor, $batch['branch_id'] === null ? null : (int)$batch['branch_id']);
+    $sql = "SELECT u.id, u.name, u.email, u.phone
+        FROM users u
+        JOIN course_enrollments ce ON ce.user_id = u.id AND ce.course_id = ?
+          AND ce.status IN ('active','completed')
+        LEFT JOIN batch_enrollments be ON be.batch_id = ? AND be.user_id = u.id AND be.status = 'active'
+        WHERE u.role = 'student' AND u.is_active = 1 AND be.id IS NULL";
+    $params = [(int)$batch['course_id'], $batchId];
+    if ($batch['branch_id'] !== null) { $sql .= ' AND u.branch_id = ?'; $params[] = (int)$batch['branch_id']; }
+    $sql .= ' ORDER BY u.name';
+    $stmt = $db->prepare($sql); $stmt->execute($params);
+    aec_ok($stmt->fetchAll());
+}
+
 if ($action === 'students') {
     aec_method(['GET']);
     $actor = aec_require_permission('batches.manage');

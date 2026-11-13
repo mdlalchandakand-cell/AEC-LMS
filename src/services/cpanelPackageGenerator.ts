@@ -128,16 +128,16 @@ echo "<a href='/'>Return to Home</a>";
 
 define('APP_NAME', "Alom's English Center");
 define('APP_NAME_BN', "আলম'স ইংলিশ সেন্টার");
-define('APP_URL', 'https://alomsenglishcenter.com');
+define('APP_URL', getenv('AEC_APP_URL') ?: '');
 define('APP_VERSION', '2.5.0');
 define('CURRENCY_SYMBOL', '৳');
 define('CURRENCY_CODE', 'BDT');
 
 // bKash & Nagad Payment Config
-define('BKASH_MERCHANT_NUMBER', '01712345678');
-define('NAGAD_MERCHANT_NUMBER', '01812345678');
-define('OFFICIAL_HOTLINE', '+880 1712 345678');
-define('OFFICIAL_EMAIL', 'info@alomsenglish.com');
+define('BKASH_MERCHANT_NUMBER', getenv('AEC_BKASH_MERCHANT_NUMBER') ?: '');
+define('NAGAD_MERCHANT_NUMBER', getenv('AEC_NAGAD_MERCHANT_NUMBER') ?: '');
+define('OFFICIAL_HOTLINE', getenv('AEC_OFFICIAL_HOTLINE') ?: '');
+define('OFFICIAL_EMAIL', getenv('AEC_OFFICIAL_EMAIL') ?: '');
 
 // Error Reporting (Change to false in live production)
 define('DEBUG_MODE', false);
@@ -162,9 +162,9 @@ class Database {
     private static ?PDO $instance = null;
 
     private const DB_HOST = 'localhost';
-    private const DB_NAME = 'alomseng_lms';
-    private const DB_USER = 'alomseng_user';
-    private const DB_PASS = 'ChangeThisSecurePassword2025!';
+    private const DB_NAME = '';
+    private const DB_USER = '';
+    private const DB_PASS = '';
     private const DB_CHARSET = 'utf8mb4';
 
     public static function getConnection(): PDO {
@@ -611,11 +611,11 @@ CREATE TABLE \`payout_requests\` (
 DROP TABLE IF EXISTS \`marketing_settings\`;
 CREATE TABLE \`marketing_settings\` (
   \`id\` INT PRIMARY KEY DEFAULT 1,
-  \`ga4_measurement_id\` VARCHAR(50) DEFAULT 'G-ALOM7896X',
-  \`gtm_container_id\` VARCHAR(50) DEFAULT 'GTM-ALOM992',
-  \`meta_pixel_id\` VARCHAR(50) DEFAULT '109845672391024',
+  \`ga4_measurement_id\` VARCHAR(50) DEFAULT '',
+  \`gtm_container_id\` VARCHAR(50) DEFAULT '',
+  \`meta_pixel_id\` VARCHAR(50) DEFAULT '',
   \`meta_capi_token\` VARCHAR(255) DEFAULT NULL,
-  \`google_site_verification\` VARCHAR(100) DEFAULT 'aec-verify-google-search-console-98102',
+  \`google_site_verification\` VARCHAR(100) DEFAULT '',
   \`sitemap_xml_enabled\` TINYINT(1) DEFAULT 1,
   \`robots_txt_content\` TEXT,
   \`updated_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -635,15 +635,15 @@ CREATE TABLE \`envato_licenses\` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO \`plugins\` (\`id\`, \`name\`, \`category\`, \`description\`, \`version\`, \`author\`, \`is_enabled\`, \`status\`, \`config_json\`, \`webhook_url\`) VALUES
-('plugin_bkash_pgw', 'bKash PGW (Tokenized Checkout)', 'payment_gateway', 'Direct automated checkout with instant verification via bKash Merchant API.', '2.4.0', 'bKash Developer Network', 1, 'connected', '{\\"appKey\\":\\"bkash_live_app_aec981\\",\\"merchantNumber\\":\\"01712345678\\"}', 'https://alomsenglishcenter.com/api/webhooks/bkash.php'),
-('plugin_zoom', 'Zoom Education & Pro Integration', 'live_conferencing', 'Auto-generate recurring Zoom links with waiting room and cloud recording.', '3.1.2', 'Zoom Video Communications', 1, 'connected', '{\\"clientId\\":\\"zoom_aec_live_oauth_client\\"}', 'https://alomsenglishcenter.com/api/webhooks/zoom.php'),
-('plugin_ga4', 'Google Analytics 4 & GTM Suite', 'analytics', 'Track real-time student funnel, checkout events, and conversions.', '1.2.0', 'Google LLC', 1, 'connected', '{\\"measurementId\\":\\"G-ALOM7896X\\"}', NULL);
+('plugin_bkash_pgw', 'bKash PGW (Tokenized Checkout)', 'payment_gateway', 'Direct automated checkout with instant verification via bKash Merchant API.', '2.4.0', 'bKash Developer Network', 1, 'connected', '{\\"appKey\\":\\"\\",\\"merchantNumber\\":\\"\\"}', 'https://alomsenglishcenter.com/api/webhooks/bkash.php'),
+('plugin_zoom', 'Zoom Education & Pro Integration', 'live_conferencing', 'Auto-generate recurring Zoom links with waiting room and cloud recording.', '3.1.2', 'Zoom Video Communications', 1, 'connected', '{\\"clientId\\":\\"\\"}', 'https://alomsenglishcenter.com/api/webhooks/zoom.php'),
+('plugin_ga4', 'Google Analytics 4 & GTM Suite', 'analytics', 'Track real-time student funnel, checkout events, and conversions.', '1.2.0', 'Google LLC', 1, 'connected', '{\\"measurementId\\":\\"\\"}', NULL);
 
 INSERT INTO \`marketing_settings\` (\`id\`, \`ga4_measurement_id\`, \`gtm_container_id\`, \`meta_pixel_id\`, \`meta_capi_token\`, \`google_site_verification\`, \`sitemap_xml_enabled\`, \`robots_txt_content\`) VALUES
-(1, 'G-ALOM7896X', 'GTM-ALOM992', '109845672391024', 'EAAO8ZBW...LIVE_CAPI', 'aec-verify-google-search-console-98102', 1, 'User-agent: *\\nAllow: /\\nDisallow: /admin/\\nDisallow: /install/\\nSitemap: https://alomsenglishcenter.com/sitemap.xml');
+(1, '', '', '', '', '', 1, 'User-agent: *\\nAllow: /\\nDisallow: /admin/\\nDisallow: /install/\\nSitemap: https://alomsenglishcenter.com/sitemap.xml');
 
 INSERT INTO \`envato_licenses\` (\`id\`, \`purchase_code\`, \`license_type\`, \`buyer_username\`, \`item_name\`, \`support_until\`, \`status\`) VALUES
-(1, 'AEC-ENVATO-9824-7102-COMMERCIAL', 'Extended License', 'AlomsEnglishCenter', 'Aloms English Center - Ultimate Commercial LMS', '2027-12-31', 'valid');
+(1, '', 'Regular License', '', 'Aloms English Center', NULL, 'pending');
 
 SET FOREIGN_KEY_CHECKS = 1;
 `
@@ -1503,13 +1503,15 @@ Enterprise Learning Management System specifically designed for Alom's English C
   ];
 };
 
+/**
+ * Release guard: the legacy package templates below describe an older,
+ * destructive schema and a different PHP application. They must not be
+ * distributed as the current AEC-LMS release. The production exporter will
+ * be re-enabled only when it packages the checked-in API and additive
+ * migrations and passes a clean cPanel installation rehearsal.
+ */
 export const generateCPanelZipBlob = async (): Promise<Blob> => {
-  const zip = new JSZip();
-  const files = getCPanelPackageFiles();
-
-  files.forEach(file => {
-    zip.file(file.path, file.content);
-  });
-
-  return await zip.generateAsync({ type: 'blob' });
+  throw new Error(
+    'Package generation is disabled: the legacy template is not the current AEC-LMS application and has not passed production deployment validation.'
+  );
 };

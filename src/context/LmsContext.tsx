@@ -568,10 +568,9 @@ export const LmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
 
   // 5. Envato CodeCanyon Licensing State
-  const [envatoLicense, setEnvatoLicense] = useState<EnvatoLicenseInfo>(() => {
-    const saved = localStorage.getItem('aec_lms_envato_license');
-    return saved ? JSON.parse(saved) : initialEnvatoLicense;
-  });
+  // License state is not trusted from browser storage. Only a server-side
+  // verification response may mark a purchase code as valid.
+  const [envatoLicense] = useState<EnvatoLicenseInfo>(initialEnvatoLicense);
 
   // Active view router state
   const [activeView, setActiveView] = useState<'home' | 'login' | 'courses' | 'learn' | 'instructors' | 'products' | 'ebooks' | 'live_classes' | 'exams' | 'admission' | 'about' | 'contact' | 'dashboard' | 'classroom' | 'take_exam' | 'certificate_view' | 'id_card_view'>(() => new URLSearchParams(window.location.search).has('account_action') ? 'login' : 'home');
@@ -1557,22 +1556,14 @@ export const LmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
-  const verifyEnvatoPurchaseCode = (code: string): { isValid: boolean; message: string } => {
-    if (!code || code.trim().length < 8) {
-      return { isValid: false, message: 'Invalid Purchase Code format. Please enter a valid Envato license key.' };
-    }
-    const updated: EnvatoLicenseInfo = {
-      purchaseCode: code.trim(),
-      licenseType: 'Extended License',
-      buyerUsername: 'verified_envato_customer',
-      supportedUntil: '2026-12-31',
-      itemVersion: '2.5.0 Production',
-      isValid: true,
-      domain: window.location.hostname
+  const verifyEnvatoPurchaseCode = (_code: string): { isValid: boolean; message: string } => {
+    // Purchase-code verification must be performed by a trusted server-side
+    // integration using the publisher's private Envato API credentials.
+    // A browser-only format check is not proof of purchase or license validity.
+    return {
+      isValid: false,
+      message: 'Server-side Envato verification is not configured. The purchase code was not accepted or stored.'
     };
-    setEnvatoLicense(updated);
-    localStorage.setItem('aec_lms_envato_license', JSON.stringify(updated));
-    return { isValid: true, message: 'Envato CodeCanyon Purchase Code verified and activated successfully!' };
   };
 
   const unreadNotificationsCount = notificationUnreadCount;

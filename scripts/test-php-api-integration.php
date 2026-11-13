@@ -1321,6 +1321,25 @@ try {
     $retainedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ? AND deleted_at IS NOT NULL');
     $retainedBatchCheck->execute([$batchId]);
     check((int)$retainedBatchCheck->fetchColumn() === 1, 'Batch with historical enrollments/routines was permanently deleted.');
+    expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $courseIds[0], 'POST', [], $cookie, $csrf), 200, 'Admin moves a course to the recycle bin');
+    $courseRecycleList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists soft-deleted courses');
+    $courseRecycleRows = array_values(array_filter($courseRecycleList['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === (int)$courseIds[0]));
+    check(count($courseRecycleRows) === 1, 'Soft-deleted course was not recorded in the recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$courseRecycleRows[0]['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores a course from the recycle bin');
+    $courseRestoreCheck = $db->prepare('SELECT deleted_at FROM courses WHERE id = ?');
+    $courseRestoreCheck->execute([$courseIds[0]]);
+    check($courseRestoreCheck->fetchColumn() === null, 'Recycle-bin course restore did not clear deleted_at.');
+    if ($contentId !== null) {
+        expect_status(api_request($base, '/api/content.php?action=delete&id=' . $contentId, 'POST', [], $cookie, $csrf), 200, 'Admin moves content to the recycle bin');
+        $contentRecycleList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists soft-deleted content');
+        $contentRecycleRows = array_values(array_filter($contentRecycleList['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'content' && (int)$row['entity_id'] === (int)$contentId));
+        check(count($contentRecycleRows) === 1, 'Soft-deleted content was not recorded in the recycle bin.');
+        expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$contentRecycleRows[0]['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores content from the recycle bin');
+        $contentRestoreCheck = $db->prepare('SELECT deleted_at FROM content_items WHERE id = ?');
+        $contentRestoreCheck->execute([$contentId]);
+        check($contentRestoreCheck->fetchColumn() === null, 'Recycle-bin content restore did not clear deleted_at.');
+    }
+
 
     $enrollmentAfterRefund = $db->prepare('SELECT status FROM course_enrollments WHERE user_id = ? AND course_id = ?');
     $enrollmentAfterRefund->execute([$studentId, $courseIds[0]]);
@@ -1484,6 +1503,12 @@ try {
     foreach (array_filter([$contentId, $draftCoursePreviewContentId, $paidContentId]) as $cleanupContentId) {
         $db->prepare('DELETE FROM course_content WHERE content_item_id = ?')->execute([$cleanupContentId]);
         $db->prepare('DELETE FROM content_items WHERE id = ?')->execute([$cleanupContentId]);
+    }
+    if ($courseIds !== []) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'course' AND entity_id = ?")->execute([$courseIds[0]]);
+    }
+    if ($contentId !== null) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'content' AND entity_id = ?")->execute([$contentId]);
     }
     if ($batchId !== null) {
         $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'batch' AND entity_id = ?")->execute([$batchId]);

@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+:root {
+  --font-heading: 'Plus Jakarta Sans', 'Hind Siliguri', sans-serif;
+  --font-body: 'Plus Jakarta Sans', 'Hind Siliguri', sans-serif;
+  --heading-weight: 800;
+  --font-size-base: 15px;
+}
+
+@layer base {
+  html {
+    font-size: var(--font-size-base);
+  }
+  body {
+    font-family: var(--font-body), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  h1, h2, h3, h4, .font-heading {
+    font-family: var(--font-heading), 'Hind Siliguri', sans-serif;
+  }
+}
+
+@keyframes marquee-scroll-left {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes marquee-scroll-right {
+  0% {
+    transform: translate3d(-50%, 0, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.animate-marquee-left {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll-left 42s linear infinite;
+  will-change: transform;
+}
+
+.animate-marquee-right {
+  display: flex;
+  width: max-content;
+  animation: marquee-scroll-right 46s linear infinite;
+  will-change: transform;
+}
+
+.marquee-wrapper:hover .animate-marquee-left,
+.marquee-wrapper:hover .animate-marquee-right {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee-left,
+  .animate-marquee-right {
+    animation: none;
+  }
+}
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+
+/* Print only the selected certificate when a certificate preview is open. */
+@media print {
+  body:has(.certificate-print) * {
+    visibility: hidden !important;
+  }
+  body:has(.certificate-print) .certificate-print,
+  body:has(.certificate-print) .certificate-print * {
+    visibility: visible !important;
+  }
+  body:has(.certificate-print) .certificate-print {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+  body:has(.certificate-print) .no-print {
+    display: none !important;
+  }
+}

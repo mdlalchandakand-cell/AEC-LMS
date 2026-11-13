@@ -1,0 +1,102 @@
+name: Product foundation checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, custom/product-foundation, backend/php-api-foundation, ci/robust-migration-safety-check, test/mysql-migration-integration, 'feature/**']
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend install, type-check and production build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Type-check
+        run: bun run lint
+      - name: Build production frontend
+        run: |
+          bun run build
+          test -f dist/index.html
+          test -f dist/.htaccess
+
+  backend:
+    name: PHP 8.3 syntax and migration validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - name: Lint PHP source
+        run: |
+          find api scripts -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
+      - name: Check migration safety
+        run: php scripts/check-migration-safety.php
+
+  mysql-integration:
+    name: MySQL migrations and schema integration
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: test-root-password
+          MYSQL_DATABASE: aec_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up PHP 8.3 with MySQL driver
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - name: Apply migrations and verify database schema
+        env:
+          AEC_TEST_DB_HOST: 127.0.0.1
+          AEC_TEST_DB_PORT: 3306
+          AEC_TEST_DB_NAME: aec_test
+          AEC_TEST_DB_USER: root
+          AEC_TEST_DB_PASS: test-root-password
+        run: php scripts/test-mysql-migrations.php
+      - name: Run PHP API HTTP integration tests
+        env:
+          AEC_TEST_DB_HOST: 127.0.0.1
+          AEC_TEST_DB_PORT: 3306
+          AEC_TEST_DB_NAME: aec_test
+          AEC_TEST_DB_USER: root
+          AEC_TEST_DB_PASS: test-root-password
+          AEC_DB_HOST: 127.0.0.1
+          AEC_DB_PORT: 3306
+          AEC_DB_NAME: aec_test
+          AEC_DB_USER: root
+          AEC_DB_PASS: test-root-password
+        run: |
+          php scripts/test-php-api-integration.php
+          php scripts/test-account-lifecycle.php

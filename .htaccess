@@ -1,0 +1,33 @@
+Options -Indexes
+DirectoryIndex index.html
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # Never expose source, SQL migrations, documentation, tooling or VCS metadata.
+  RewriteRule ^(?:database|docs|scripts|src|node_modules|\.git|\.github)(?:/|$) - [F,L,NC]
+  RewriteRule ^(?:\.env(?:\..*)?|package\.json|bun\.lock|vite\.config\.ts|tsconfig\.json|README\.md|LICENSE)$ - [F,L,NC]
+
+  # Keep PHP API routes and built static assets on their real paths.
+  RewriteRule ^api/ - [L]
+  RewriteRule ^assets/ - [L]
+
+  # Block hidden files and directories, while allowing ACME challenge files.
+  RewriteRule (^|/)\.(?!well-known(?:/|$)) - [F,L]
+
+  # Vite/React client-side routes.
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+<FilesMatch "^(?:\.env.*|package\.json|bun\.lock|vite\.config\.ts|tsconfig\.json|README\.md)$">
+  Require all denied
+</FilesMatch>

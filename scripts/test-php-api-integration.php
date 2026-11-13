@@ -85,8 +85,8 @@ function api_request(string $base, string $path, string $method = 'GET', ?array 
     if ($payload !== null) $headers[] = 'Content-Type: application/json';
     if ($cookie !== null && $cookie !== '') $headers[] = 'Cookie: ' . $cookie;
     if ($csrf !== null) $headers[] = 'X-CSRF-Token: ' . $csrf;
-    $options = [
     foreach ($extraHeaders as $header) $headers[] = $header;
+    $options = [
         'http' => [
             'method' => $method,
             'header' => implode("\r\n", $headers),

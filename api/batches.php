@@ -350,12 +350,13 @@ if ($action === 'create_routine') {
         if (!$teacher || !(bool)$teacher['is_active'] || !in_array($teacher['role'], ['teacher','assistant_teacher'], true)) aec_fail('Active instructor account not found.', 404);
         if ($batch['branch_id'] !== null && $teacher['branch_id'] !== null && (int)$teacher['branch_id'] !== (int)$batch['branch_id']) aec_fail('Instructor belongs to a different branch.', 403);
         $overlap = $db->prepare("SELECT r.id FROM batch_routine_slots r
-            WHERE (r.branch_id IS NULL OR r.branch_id <=> ? OR ? IS NULL)
-              AND r.day_of_week = ? AND r.deleted_at IS NULL
+            WHERE r.day_of_week = ? AND r.deleted_at IS NULL
               AND r.start_time < ? AND r.end_time > ?
-              AND (r.instructor_user_id = ? OR (? <> '' AND r.room_number = ?))
+              AND (r.instructor_user_id = ?
+                OR ((r.branch_id IS NULL OR r.branch_id <=> ? OR ? IS NULL)
+                    AND ? <> '' AND r.room_number = ?))
             LIMIT 1");
-        $overlap->execute([$batch['branch_id'], $batch['branch_id'], $day, $end, $start, $instructorId, $room, $room]);
+        $overlap->execute([$day, $end, $start, $instructorId, $batch['branch_id'], $batch['branch_id'], $room, $room]);
         if ($overlap->fetchColumn()) aec_fail('The instructor or room already has a class during this time.', 409);
         $stmt = $db->prepare('INSERT INTO batch_routine_slots (batch_id, branch_id, day_of_week, start_time, end_time, subject, instructor_user_id, room_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->execute([$batchId, $batch['branch_id'], $day, $start . ':00', $end . ':00', $subject, $instructorId, $room ?: null, (int)$actor['id']]);

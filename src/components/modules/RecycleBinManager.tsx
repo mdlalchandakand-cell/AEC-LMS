@@ -15,9 +15,12 @@ type RecycleItem = {
   purge_error: string | null;
   deleted_by: string;
   retention_days_left: number;
-  can_restore: boolean | number;
-  can_purge: boolean | number;
+  can_restore: boolean | number | string;
+  can_purge: boolean | number | string;
 };
+
+const canRestoreItem = (item: RecycleItem) => Number(item.can_restore) === 1;
+const canPurgeItem = (item: RecycleItem) => Number(item.can_purge) === 1;
 
 const typeLabel = (type: string, isBn: boolean) => {
   const labels: Record<string, [string, string]> = {
@@ -72,10 +75,10 @@ export const RecycleBinManager: React.FC = () => {
     return matchesType && matchesSearch;
   }), [items, filterType, searchQuery]);
 
-  const expiredCount = items.filter(item => Boolean(item.can_purge)).length;
+  const expiredCount = items.filter(item => canPurgeItem(item)).length;
 
   const restoreItem = async (item: RecycleItem) => {
-    if (!Boolean(item.can_restore)) {
+    if (!canRestoreItem(item)) {
       setError(isBn ? '৩০ দিনের মেয়াদ শেষ; আইটেমটি আর রিস্টোর করা যাবে না।' : 'The 30-day retention period has expired; this item cannot be restored.');
       return;
     }
@@ -91,7 +94,7 @@ export const RecycleBinManager: React.FC = () => {
   };
 
   const purgeItem = async (item: RecycleItem) => {
-    if (!canPurge || !Boolean(item.can_purge)) return;
+    if (!canPurge || !canPurgeItem(item)) return;
     if (!window.confirm(isBn ? '৩০ দিনের মেয়াদ শেষ। স্থায়ীভাবে মুছে ফেলবেন?' : 'The retention period has expired. Permanently delete this item?')) return;
     setBusy(true); setError(''); setSuccess('');
     try {
@@ -188,7 +191,7 @@ export const RecycleBinManager: React.FC = () => {
               ) : filteredItems.length === 0 ? (
                 <tr><td colSpan={6} className="p-8 text-center text-slate-500">{isBn ? 'কোনো আইটেম পাওয়া যায়নি।' : 'No recycle-bin items found.'}</td></tr>
               ) : filteredItems.map(item => {
-                const expired = Boolean(item.can_purge);
+                const expired = canPurge(item);
                 return (
                   <tr key={item.id} className="align-top">
                     <td className="p-3">

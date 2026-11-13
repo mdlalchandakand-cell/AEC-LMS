@@ -927,6 +927,21 @@ try {
     expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin restores a batch');
     $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
     check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
+    $batchUpdateBase = [
+        'course_id' => $courseIds[0], 'name' => 'API Integration Batch ' . $suffix,
+        'batch_code' => 'TST-' . strtoupper($suffix), 'schedule' => 'Sun 10:00-11:00',
+        'room_number' => 'Test Room 1', 'instructor_user_id' => $teacherId, 'max_capacity' => 1,
+        'start_date' => '2026-11-15', 'end_date' => '2027-03-01',
+    ];
+    expect_status(api_request($base, '/api/batches.php?action=update&id=' . $batchId, 'POST', $batchUpdateBase + ['status' => 'cancelled'], $cookie, $csrf), 200, 'Admin cancels a batch');
+    $studentBatchesAfterCancel = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Cancelled batch is hidden from students');
+    check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterCancel['data'] ?? []), true), 'Student retained access to a cancelled batch.');
+    $studentRoutinesAfterCancel = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Cancelled batch routines are hidden from students');
+    check(count(array_filter($studentRoutinesAfterCancel['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 0, 'Student retained access to a cancelled batch routine.');
+    expect_status(api_request($base, '/api/batches.php?action=eligible_students&batch_id=' . $batchId, 'GET', null, $cookie), 409, 'Cancelled batch cannot accept new students');
+    expect_status(api_request($base, '/api/batches.php?action=enroll&id=' . $batchId, 'POST', ['student_user_id' => $studentId], $cookie, $csrf), 409, 'Cancelled batch rejects student placement');
+    expect_status(api_request($base, '/api/batches.php?action=update&id=' . $batchId, 'POST', $batchUpdateBase + ['status' => 'upcoming'], $cookie, $csrf), 200, 'Admin reopens the batch after cancellation');
+
 
 
     // Persistent teacher commission: verified revenue accrues commission, payout reservations prevent overspending.

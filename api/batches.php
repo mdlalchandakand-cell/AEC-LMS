@@ -54,7 +54,10 @@ if ($action === 'list') {
     $sql = "SELECT b.id, b.course_id, c.title AS course_title, b.branch_id, b.name, b.batch_code,
         b.schedule_label AS schedule, b.room_number, b.instructor_user_id AS instructor_id,
         u.name AS instructor_name, b.max_capacity,
-        (SELECT COUNT(*) FROM batch_enrollments be WHERE be.batch_id = b.id AND be.status = 'active') AS enrolled_students_count,
+        (SELECT COUNT(*) FROM batch_enrollments be
+          JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id
+            AND ce.status IN ('active','completed')
+          WHERE be.batch_id = b.id AND be.status = 'active') AS enrolled_students_count,
         b.start_date, b.end_date, b.status, b.created_at
         FROM batches b JOIN courses c ON c.id = b.course_id JOIN users u ON u.id = b.instructor_user_id
         WHERE b.deleted_at IS NULL";

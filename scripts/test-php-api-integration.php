@@ -1046,6 +1046,8 @@ try {
     expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $draftCourseId, 'POST', [], $cookie, $csrf), 200, 'Admin archives a course through the API');
     $courseRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Admin lists persistent recycle-bin items after course deletion');
     check(count(array_filter($courseRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === $draftCourseId)) === 1, 'Soft-deleted course was not registered in the persistent recycle bin.');
+    $courseRecycleItem = array_values(array_filter($courseRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === $draftCourseId))[0];
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . (int)$courseRecycleItem['id'], 'POST', [], $cookie, $csrf), 409, 'Course with enrollment/payment history cannot be permanently deleted');
     $afterArchive = expect_status(api_request($base, '/api/courses.php?action=list', 'GET', null, $cookie), 200, 'Admin course list after archival');
     check(!in_array($draftCourseId, array_map(static fn(array $course): int => (int)$course['id'], $afterArchive['data'] ?? []), true), 'Archived course remained in the active course list.');
     expect_status(api_request($base, '/api/courses.php?action=restore&id=' . $draftCourseId, 'POST', [], $cookie, $csrf), 200, 'Admin restores archived course');

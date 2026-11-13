@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '../../services/apiClient';
 import { useLms } from '../../context/LmsContext';
+import { GuardianLinkRequests } from '../modules/GuardianLinkRequests';
 import { 
   BookOpen, FileCheck, Award, Star, ArrowRight, Play, 
   Video, Calendar, Clock, CreditCard, LifeBuoy, CheckCircle2,
@@ -35,6 +36,7 @@ export const StudentOverview: React.FC<StudentOverviewProps> = ({
 
   return (
     <div className="space-y-6">
+      <GuardianLinkRequests language={language} />
       {/* 4 Stat Cards matching collage */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         

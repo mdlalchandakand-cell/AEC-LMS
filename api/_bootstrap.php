@@ -94,19 +94,24 @@ function aec_recycle_bin_record(PDO $db, array $actor, string $entityType, int $
     if (!in_array($entityType, $allowed, true) || $entityId < 1) {
         throw new InvalidArgumentException('Invalid recycle-bin entity.');
     }
+    $title = trim($title);
+    if ($title === '' || mb_strlen($title) > 220) throw new InvalidArgumentException('Recycle-bin title is invalid.');
     $encoded = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($encoded === false) throw new RuntimeException('Could not serialize recycle-bin snapshot.');
-    $find = $db->prepare("SELECT id FROM recycle_bin_items WHERE entity_type = ? AND entity_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1");
-    $find->execute([$entityType, $entityId]);
-    $existingId = $find->fetchColumn();
-    if ($existingId) {
-        $db->prepare("UPDATE recycle_bin_items SET title = ?, branch_id = ?, deleted_by = ?, snapshot = ?, deleted_at = NOW(), expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY), purge_error = NULL WHERE id = ?")
-            ->execute([$title, $branchId, (int)$actor['id'], $encoded, (int)$existingId]);
-        return;
-    }
-    $db->prepare("INSERT INTO recycle_bin_items (entity_type, entity_id, title, branch_id, deleted_by, snapshot, status, deleted_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), DATE_ADD(NOW(), INTERVAL 30 DAY))")
-        ->execute([$entityType, $entityId, $title, $branchId, (int)$actor['id'], $encoded]);
+
+    // The generated unique active-slot key prevents concurrent duplicate active
+    // records. INSERT IGNORE followed by UPDATE refreshes the existing active
+    // snapshot and its 30-day window when the same entity is deleted again.
+    $insert = $db->prepare("INSERT IGNORE INTO recycle_bin_items
+        (entity_type, entity_id, title, branch_id, deleted_by, snapshot, status, deleted_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), DATE_ADD(NOW(), INTERVAL 30 DAY))");
+    $insert->execute([$entityType, $entityId, $title, $branchId, (int)$actor['id'], $encoded]);
+
+    $update = $db->prepare("UPDATE recycle_bin_items
+        SET title = ?, branch_id = ?, deleted_by = ?, snapshot = ?, deleted_at = NOW(),
+            expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY), purge_error = NULL
+        WHERE entity_type = ? AND entity_id = ? AND status = 'active'");
+    $update->execute([$title, $branchId, (int)$actor['id'], $encoded, $entityType, $entityId]);
 }
 
 function aec_start_session(): void {

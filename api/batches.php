@@ -180,7 +180,13 @@ if ($action === 'delete' || $action === 'restore') {
     if (!$batch) aec_fail('Batch not found.', 404);
     aec_batch_branch_check($db, $actor, $batch['branch_id'] === null ? null : (int)$batch['branch_id']);
     if ($action === 'delete') {
+        $details = $db->prepare('SELECT name, batch_code, status, branch_id, course_id FROM batches WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+        $details->execute([$id]); $batchDetails = $details->fetch();
+        if (!$batchDetails) aec_fail('Batch not found.', 404);
         $db->prepare('UPDATE batches SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL')->execute([$id]);
+        aec_recycle_bin_record($db, $actor, 'batch', $id, (string)$batchDetails['name'], $batchDetails['branch_id'] === null ? null : (int)$batchDetails['branch_id'], [
+            'status' => $batchDetails['status'], 'batch_code' => $batchDetails['batch_code'], 'course_id' => (int)$batchDetails['course_id'],
+        ]);
         aec_batch_audit($db, $actor, 'batch.deleted', $id);
         aec_ok(['id' => $id], 'Batch moved to recycle bin.');
     }
@@ -188,6 +194,7 @@ if ($action === 'delete' || $action === 'restore') {
     $duplicate->execute([$batch['branch_id'], $id, $id]);
     if ($duplicate->fetchColumn()) aec_fail('Another batch already uses this code in the branch; rename it before restoring.', 409);
     $db->prepare('UPDATE batches SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL')->execute([$id]);
+    $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'batch' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], $id]);
     aec_batch_audit($db, $actor, 'batch.restored', $id);
     aec_ok(['id' => $id], 'Batch restored.');
 }

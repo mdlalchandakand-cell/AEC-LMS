@@ -519,6 +519,31 @@ try {
     ], $cookie, $csrf), 200, 'Admin publishes testimonial');
     $publicTestimonials = expect_status(api_request($base, '/api/cms.php?action=public_testimonials'), 200, 'Public testimonial list after publishing');
     check(in_array($cmsTestimonialId, array_map(static fn(array $item): int => (int)$item['id'], $publicTestimonials['data'] ?? []), true), 'Published testimonial was not visible publicly.');
+    expect_status(api_request($base, '/api/cms.php?action=delete_post&id=' . $cmsPostId, 'POST', [], $cookie, $csrf), 200, 'Admin archives a CMS post into recycle bin');
+    $cmsRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists CMS content');
+    $cmsPostRecycleItem = array_values(array_filter($cmsRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'cms_post' && (int)$row['entity_id'] === $cmsPostId))[0] ?? null;
+    check(is_array($cmsPostRecycleItem), 'CMS post was not registered in recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$cmsPostRecycleItem['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores CMS post');
+    expect_status(api_request($base, '/api/cms.php?action=post&slug=api-cms-article-' . $suffix), 200, 'Restored CMS post is publicly readable again');
+
+    expect_status(api_request($base, '/api/cms.php?action=delete_testimonial&id=' . $cmsTestimonialId, 'POST', [], $cookie, $csrf), 200, 'Admin archives testimonial into recycle bin');
+    $testimonialRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists archived testimonials');
+    $testimonialRecycleItem = array_values(array_filter($testimonialRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'cms_testimonial' && (int)$row['entity_id'] === $cmsTestimonialId))[0] ?? null;
+    check(is_array($testimonialRecycleItem), 'CMS testimonial was not registered in recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$testimonialRecycleItem['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores CMS testimonial');
+    expect_status(api_request($base, '/api/cms.php?action=public_testimonials'), 200, 'Restored testimonial is publicly available again');
+    expect_status(api_request($base, '/api/cms.php?action=delete_testimonial&id=' . $cmsTestimonialId, 'POST', [], $cookie, $csrf), 200, 'Admin archives testimonial again for retention purge test');
+    $expiredRecycleId = (int)$db->query("SELECT id FROM recycle_bin_items WHERE entity_type = 'cms_testimonial' AND entity_id = " . (int)$cmsTestimonialId . " AND status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+    check($expiredRecycleId > 0, 'Second testimonial deletion did not create a new recycle-bin record.');
+    $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?')->execute([$expiredRecycleId]);
+    $beforePurgeList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Expired recycle item remains visible until explicit purge');
+    check(in_array($expiredRecycleId, array_map(static fn(array $row): int => (int)$row['id'], $beforePurgeList['data'] ?? []), true), 'Recycle-bin list purged an item without an explicit purge request.');
+    $cmsPurge = expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $cookie, $csrf), 200, 'Admin explicitly purges expired testimonial');
+    check((int)($cmsPurge['data']['purged'] ?? 0) >= 1, 'Expired testimonial without dependent records was not purged.');
+    $expiredStatus = $db->prepare('SELECT status FROM recycle_bin_items WHERE id = ?');
+    $expiredStatus->execute([$expiredRecycleId]);
+    check($expiredStatus->fetchColumn() === 'purged', 'Expired testimonial was not marked purged.');
+
     expect_status(api_request($base, '/api/courses.php?action=create', 'POST', ['title' => 'No CSRF', 'slug' => 'no-csrf'], $cookie), 419, 'Missing CSRF token is rejected');
 
     $otherBranch = expect_status(api_request($base, '/api/branches.php?action=create', 'POST', [
@@ -1510,6 +1535,8 @@ try {
     if ($contentId !== null) {
         $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'content' AND entity_id = ?")->execute([$contentId]);
     }
+    if ($cmsPostId !== null) $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'cms_post' AND entity_id = ?")->execute([$cmsPostId]);
+    if ($cmsTestimonialId !== null) $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'cms_testimonial' AND entity_id = ?")->execute([$cmsTestimonialId]);
     if ($batchId !== null) {
         $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'batch' AND entity_id = ?")->execute([$batchId]);
         $db->prepare('DELETE FROM batch_routine_slots WHERE batch_id = ?')->execute([$batchId]);

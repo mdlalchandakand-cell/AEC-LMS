@@ -1,5 +1,7 @@
 name: cPanel release package
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
   push:
     tags:
@@ -27,6 +29,9 @@ jobs:
         run: |
           bun run lint
           bun run build
+      - name: Validate packaging script syntax
+        run: bash -n scripts/package-cpanel-release.sh
+
       - name: Assemble and inspect cPanel package
         run: |
           bash scripts/package-cpanel-release.sh "$RUNNER_TEMP/release"

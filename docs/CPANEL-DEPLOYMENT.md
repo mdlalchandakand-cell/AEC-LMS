@@ -135,3 +135,8 @@ Do not label the repository or any ZIP as a ready-to-use full LMS until those ga
 
 
 Migration 029 adds the persistent recycle bin and backfills previously soft-deleted courses, content, batches, exams and CMS records. It retains linked academic/payment history and enforces 30-day expiry on recycle-bin access.
+
+
+### Persistent recycle-bin behavior
+
+Migration 029 backfills existing soft-deleted records and adds persistent recycle-bin metadata. New course, content, batch, exam and CMS deletions are recorded with the acting user, branch, snapshot and 30-day expiry. Opening the administrator recycle bin automatically purges expired items when no protected references remain. Permanent deletion is intentionally blocked when linked enrollments, payments, certificates, private media, routines, batch rosters or exam attempts must be preserved. This is a data-protection rule, not a failed delete.

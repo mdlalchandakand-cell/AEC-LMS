@@ -114,6 +114,7 @@ if ($action === 'restore') {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     if (!$stmt->rowCount()) aec_fail('Deleted course not found.', 404);
+    $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'course' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], (int)$id]);
     aec_ok(['id' => $id], 'Course restored.');
 }
 

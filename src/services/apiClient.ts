@@ -355,6 +355,20 @@ class ApiService {
     delete: (id: string | number) => this.request<{ id: number }>(`/exams.php?action=delete&id=${encodeURIComponent(id)}`, { method: 'POST' }),
   };
 
+  public batches = {
+    getAll: () => this.request<Array<Record<string, unknown>>>('/batches.php?action=list'),
+    getRoutines: (batchId?: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=routines${batchId ? `&batch_id=${encodeURIComponent(String(batchId))}` : ''}`),
+    create: (data: Record<string, unknown>) => this.request<{ id: number }>('/batches.php?action=create', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: Record<string, unknown>) => this.request<{ id: number }>(`/batches.php?action=update&id=${encodeURIComponent(String(id))}`, { method: 'POST', body: JSON.stringify(data) }),
+    delete: (id: number) => this.request<{ id: number }>(`/batches.php?action=delete&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    restore: (id: number) => this.request<{ id: number }>(`/batches.php?action=restore&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    getStudents: (batchId: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=students&batch_id=${encodeURIComponent(String(batchId))}`),
+    enroll: (batchId: number, studentUserId: number) => this.request<{ batch_id: number; student_user_id: number }>(`/batches.php?action=enroll&id=${encodeURIComponent(String(batchId))}`, { method: 'POST', body: JSON.stringify({ student_user_id: studentUserId }) }),
+    unenroll: (batchId: number, studentUserId: number) => this.request<{ batch_id: number; student_user_id: number }>(`/batches.php?action=unenroll&id=${encodeURIComponent(String(batchId))}`, { method: 'POST', body: JSON.stringify({ student_user_id: studentUserId }) }),
+    createRoutine: (data: Record<string, unknown>) => this.request<{ id: number }>('/batches.php?action=create_routine', { method: 'POST', body: JSON.stringify(data) }),
+    deleteRoutine: (id: number) => this.request<{ id: number }>(`/batches.php?action=delete_routine&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+  };
+
   public teacherCommissions = {
     getSummary: (teacherId?: string | number) => this.request<{
       commissions: Array<Record<string, unknown>>;

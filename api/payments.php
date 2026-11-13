@@ -182,7 +182,7 @@ if ($action === 'verify' || $action === 'reject') {
             aec_ok(['id' => $id], 'Payment rejected.');
         }
 
-        $db->prepare("UPDATE course_payments SET status = 'verified', reviewed_at = NOW(), reviewed_by = ? WHERE id = ?")
+        $db->prepare("UPDATE course_payments SET status = 'verified', reviewed_at = NOW(6), reviewed_by = ? WHERE id = ?")
             ->execute([(int)$actor['id'], $id]);
 
         $accountCode = $payment['payment_method'] === 'Bank Transfer'

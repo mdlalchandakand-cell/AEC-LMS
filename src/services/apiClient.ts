@@ -355,6 +355,43 @@ class ApiService {
     delete: (id: string | number) => this.request<{ id: number }>(`/exams.php?action=delete&id=${encodeURIComponent(id)}`, { method: 'POST' }),
   };
 
+
+  public batches = {
+    getAll: () => this.request<Array<Record<string, unknown>>>('/batches.php?action=list'),
+    getRoutines: (batchId?: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=routines${batchId ? `&batch_id=${encodeURIComponent(String(batchId))}` : ''}`),
+    create: (data: Record<string, unknown>) => this.request<{ id: number }>('/batches.php?action=create', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: Record<string, unknown>) => this.request<{ id: number }>(`/batches.php?action=update&id=${encodeURIComponent(String(id))}`, { method: 'POST', body: JSON.stringify(data) }),
+    delete: (id: number) => this.request<{ id: number }>(`/batches.php?action=delete&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    restore: (id: number) => this.request<{ id: number }>(`/batches.php?action=restore&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    getInstructors: () => this.request<Array<Record<string, unknown>>>('/batches.php?action=instructors'),
+    getStudents: (batchId: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=students&batch_id=${encodeURIComponent(String(batchId))}`),
+    getEligibleStudents: (batchId: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=eligible_students&batch_id=${encodeURIComponent(String(batchId))}`),
+    enroll: (batchId: number, studentUserId: number) => this.request<{ batch_id: number; student_user_id: number }>(`/batches.php?action=enroll&id=${encodeURIComponent(String(batchId))}`, { method: 'POST', body: JSON.stringify({ student_user_id: studentUserId }) }),
+    unenroll: (batchId: number, studentUserId: number) => this.request<{ batch_id: number; student_user_id: number }>(`/batches.php?action=unenroll&id=${encodeURIComponent(String(batchId))}`, { method: 'POST', body: JSON.stringify({ student_user_id: studentUserId }) }),
+    createRoutine: (data: Record<string, unknown>) => this.request<{ id: number }>('/batches.php?action=create_routine', { method: 'POST', body: JSON.stringify(data) }),
+    deleteRoutine: (id: number) => this.request<{ id: number }>(`/batches.php?action=delete_routine&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+  };
+
+  public teacherCommissions = {
+    getSummary: (teacherId?: string | number) => this.request<{
+      commissions: Array<Record<string, unknown>>;
+      totals: { gross_commission: string; paid_commission: string; reserved_payouts: string; available_balance: string; overpaid_commission: string };
+    }>(`/teacher_commissions.php?action=summary${teacherId ? `&teacher_id=${encodeURIComponent(String(teacherId))}` : ''}`),
+    getAssignments: () => this.request<Array<Record<string, unknown>>>('/teacher_commissions.php?action=assignments'),
+    assign: (courseId: number, teacherUserId: number, commissionPercentage: number) =>
+      this.request<{ id: number }>('/teacher_commissions.php?action=assign', { method: 'POST', body: JSON.stringify({ course_id: courseId, teacher_user_id: teacherUserId, commission_percentage: commissionPercentage }) }),
+    unassign: (id: number) =>
+      this.request<{ id: number }>(`/teacher_commissions.php?action=unassign&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    getPayouts: () => this.request<Array<Record<string, unknown>>>('/teacher_commissions.php?action=payouts'),
+    requestPayout: (data: { amount: string; payout_method: 'bKash' | 'Nagad' | 'Bank Transfer'; account_reference: string; bank_name?: string; bank_branch?: string; remarks?: string }) =>
+      this.request<{ id: number; status: string; available_balance: string }>('/teacher_commissions.php?action=request_payout', { method: 'POST', body: JSON.stringify(data) }),
+    reviewPayout: (id: number, decision: 'approve' | 'reject', reason?: string) =>
+      this.request<{ id: number; status: string }>(`/teacher_commissions.php?action=review_payout&id=${encodeURIComponent(String(id))}`, { method: 'POST', body: JSON.stringify({ decision, reason }) }),
+    markPaid: (id: number, externalTransactionReference: string) =>
+      this.request<{ id: number; status: 'paid' }>(`/teacher_commissions.php?action=mark_paid&id=${encodeURIComponent(String(id))}`, { method: 'POST', body: JSON.stringify({ external_transaction_reference: externalTransactionReference }) }),
+  };
+
+
   // Persistent certificate issuance, student wallet and public verification API.
   public certificates = {
     getAll: (query = '') => this.request<CertificateApiRecord[]>(`/certificates.php?action=list&q=${encodeURIComponent(query)}`),

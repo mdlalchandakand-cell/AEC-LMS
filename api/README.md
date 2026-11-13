@@ -2,6 +2,38 @@
 
 Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, HTTPS.
 
+## Academic batches and weekly routines
+
+`batches.php` provides persistent course batches, student placement, eligible-student lookup, and weekly routine slots. Batch creation requires an active course and instructor; students can be placed only when they have an active/completed enrollment in the batch course. Student batch and routine visibility is removed when course access is cancelled. Branch managers are restricted to their assigned branch, and routine scheduling checks instructor/room overlaps across branch-specific and global schedules.
+
+- `GET /api/batches.php?action=list` — visible batches for the signed-in administrator, branch manager, instructor or enrolled student.
+- `POST /api/batches.php?action=create` — create a batch with `course_id`, `name`, `batch_code`, `instructor_user_id`, `max_capacity`, `start_date`, and `end_date`.
+- `POST /api/batches.php?action=update&id={id}` — update a batch; course/branch changes are blocked while active students remain placed.
+- `POST /api/batches.php?action=delete&id={id}` / `restore&id={id}` — soft-delete and restore a batch.
+- `GET /api/batches.php?action=instructors` — eligible active teacher accounts within the actor's scope.
+- `GET /api/batches.php?action=eligible_students&batch_id={id}` — active course enrollees not already placed in the batch.
+- `GET /api/batches.php?action=students&batch_id={id}` — current batch roster.
+- `POST /api/batches.php?action=enroll&id={id}` / `unenroll&id={id}` — place or remove a student.
+- `GET /api/batches.php?action=routines` — visible weekly routine slots.
+- `POST /api/batches.php?action=create_routine` / `delete_routine&id={id}` — add or remove weekly routine slots.
+
+Routine creation is serialized with a database advisory lock before overlap checks, preventing simultaneous requests from booking the same instructor or room. Batch codes are unique per branch, including global batches. The `batches.manage` permission is granted to administrators and branch managers; students and instructors receive read-only scoped visibility.
+
+## Teacher commissions and payouts
+
+Teacher commission is calculated from verified course payments after completed refunds. Each course-teacher assignment is a dated period: changing the rate closes the previous period and creates a new one, so payments verified in an earlier period retain the earlier rate. Soft-deleting a course or unassigning a teacher does not erase previously earned commission.
+
+- `GET /api/teacher_commissions.php?action=summary` — teacher's own commission and balances; administrators and accountants can view the global overview or supply `teacher_id`.
+- `GET /api/teacher_commissions.php?action=assignments` — administrator assignment history.
+- `POST /api/teacher_commissions.php?action=assign` — administrator starts a new assignment period with `course_id`, `teacher_user_id`, and `commission_percentage`.
+- `POST /api/teacher_commissions.php?action=unassign&id={id}` — closes an active assignment period without deleting historical earnings.
+- `GET /api/teacher_commissions.php?action=payouts` — teacher's own payout requests or administrator/accountant payout queue.
+- `POST /api/teacher_commissions.php?action=request_payout` — teacher requests a payout with amount, method and destination reference.
+- `POST /api/teacher_commissions.php?action=review_payout&id={id}` — administrator/accountant approves or rejects a pending request.
+- `POST /api/teacher_commissions.php?action=mark_paid&id={id}` — administrator/accountant records the actual external transfer reference after payment is confirmed.
+
+Pending and approved payouts reserve available balance. Approval and final settlement re-check the current balance after refunds so a previously requested payout cannot be paid if its commission backing has since fallen. The `teacher_commissions.manage` permission controls assignment/rate changes; the separate `teacher_commissions.payouts.manage` permission is limited to administrators and accountants.
+
 ## Guardian portal
 
 `guardians.php` provides consent-based guardian/student links. Guardians can request access using a student's account email, but no student data is returned while the request is pending. The student must accept the request from the student dashboard. Either side can revoke an active link; revocation immediately blocks summary access.

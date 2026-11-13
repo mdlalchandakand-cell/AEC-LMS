@@ -1,0 +1,63 @@
+-- Persistent course-teacher assignments, commission rates, and payout audit records.
+CREATE TABLE IF NOT EXISTS teacher_course_assignments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  course_id BIGINT UNSIGNED NOT NULL,
+  teacher_user_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  commission_percentage DECIMAL(5,2) NOT NULL DEFAULT 60.00,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  unassigned_at DATETIME NULL,
+  assigned_by BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  INDEX idx_teacher_assignment_course_teacher (course_id, teacher_user_id, is_active),
+  INDEX idx_teacher_assignment_teacher_active (teacher_user_id, is_active),
+  INDEX idx_teacher_assignment_branch (branch_id, is_active),
+  CONSTRAINT fk_teacher_assignment_course FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_teacher_assignment_teacher FOREIGN KEY (teacher_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_teacher_assignment_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_teacher_assignment_assigner FOREIGN KEY (assigned_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_teacher_commission_range CHECK (commission_percentage >= 0 AND commission_percentage <= 100)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS teacher_payout_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  teacher_user_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'BDT',
+  payout_method ENUM('bKash','Nagad','Bank Transfer') NOT NULL,
+  account_reference VARCHAR(190) NOT NULL,
+  bank_name VARCHAR(160) NULL,
+  bank_branch VARCHAR(160) NULL,
+  remarks VARCHAR(500) NULL,
+  status ENUM('pending','approved','rejected','paid') NOT NULL DEFAULT 'pending',
+  rejection_reason VARCHAR(500) NULL,
+  external_transaction_reference VARCHAR(120) NULL,
+  requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_by BIGINT UNSIGNED NULL,
+  reviewed_at DATETIME NULL,
+  paid_by BIGINT UNSIGNED NULL,
+  paid_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  INDEX idx_teacher_payout_teacher_status (teacher_user_id, status, requested_at),
+  INDEX idx_teacher_payout_branch_status (branch_id, status, requested_at),
+  UNIQUE KEY uq_teacher_payout_external_reference (external_transaction_reference),
+  CONSTRAINT fk_teacher_payout_teacher FOREIGN KEY (teacher_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_teacher_payout_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_teacher_payout_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_teacher_payout_payer FOREIGN KEY (paid_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_teacher_payout_positive CHECK (amount > 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
+('admin', 'teacher_commissions.manage', 1),
+('branch_manager', 'teacher_commissions.manage', 0),
+('teacher', 'teacher_commissions.manage', 0),
+('assistant_teacher', 'teacher_commissions.manage', 0),
+('accountant', 'teacher_commissions.manage', 0),
+('student', 'teacher_commissions.manage', 0),
+('guardian', 'teacher_commissions.manage', 0),
+('support_staff', 'teacher_commissions.manage', 0);

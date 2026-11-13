@@ -49,7 +49,7 @@ The following visible modules still depend substantially on context/demo state r
 - Certificate issuance, student wallet, public verification and audited revocation are merged in PR #38; PHP/MySQL integration and frontend CI passed. Browser E2E and cPanel deployment rehearsal remain release gates.
 - CMS posts, testimonials and website settings are API-backed after PR #31; browser E2E remains.
 - Public admission form and admin inquiry review are API-backed after PR #35; self-service registration, email verification, account creation, enrollment conversion and payment confirmation are not part of this intake flow.
-- Batches and routines remain demo/local state; live-class API and dashboard integration are merged in PR #43; branch management and scoped APIs are implemented in migration 017
+- Batches and weekly routines now have persistent migration/API/UI, eligible-student placement, branch scoping, active-course access checks, capacity controls and overlap-safe scheduling in the current release branch; browser E2E and cPanel smoke tests remain pending.
 - Legacy question-bank fixtures remain in context; active question-bank management is API-backed after PR #28. Persistent marksheet issuance and the admin/student registry UI are implemented on `feature/persistent-marksheet-backend`, but require successful MySQL/HTTP integration and frontend build validation before release.
 - Expenses, reports, teacher commissions and payouts remain incomplete; persistent in-app notifications are API-backed, while email/SMS delivery remains incomplete
 - Library, hostel, transport and SaaS administration

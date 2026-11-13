@@ -2,6 +2,18 @@
 
 Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, HTTPS.
 
+
+## Persistent recycle bin
+
+`recycle_bin.php` is the server-backed recycle bin for courses, reusable learning content, batches, exams, CMS posts and testimonials. Soft deletes are registered with the deleting user, branch, snapshot and a 30-day expiry. Expired items are automatically purged when an authorized administrator opens the recycle bin. Permanent deletion is blocked when student, payment, exam, media or academic history still references the record.
+
+- `GET /api/recycle_bin.php?action=list` — list active recycle-bin items; expired safe records are purged during this request.
+- `POST /api/recycle_bin.php?action=restore&id={id}` — restore an active item and its prior status.
+- `POST /api/recycle_bin.php?action=permanent_delete&id={id}` — permanently delete one item only if no protected dependencies exist.
+- `POST /api/recycle_bin.php?action=empty` — permanently delete all eligible items and return a list of records retained due to linked history.
+
+Administrator access is global. Branch managers can only view and manage records belonging to their active branch. Backfilled pre-existing soft deletes have no recorded deleting user and are labelled as previous/system deletions.
+
 ## Academic batches and weekly routines
 
 `batches.php` provides persistent course batches, student placement, eligible-student lookup, and weekly routine slots. Batch creation requires an active course and instructor; students can be placed only when they have an active/completed enrollment in the batch course. Student batch and routine visibility is removed when course access is cancelled. Branch managers are restricted to their assigned branch, and routine scheduling checks instructor/room overlaps across branch-specific and global schedules.

@@ -116,13 +116,10 @@ if ($action === 'create' || $action === 'update') {
     $status = (string)($input['status'] ?? 'upcoming');
     if (!in_array($status, ['upcoming','ongoing','completed','cancelled'], true)) aec_fail('Invalid batch status.', 422);
 
-    $duplicateCode = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = ?' . ($action === 'update' ? ' AND id <> ?' : '') . ' LIMIT 1');
-    $duplicateParams = [$branchId, $code];
-    if ($action === 'update') $duplicateParams[] = $id;
-    $duplicateCode->execute($duplicateParams);
-    if ($duplicateCode->fetchColumn()) aec_fail('A batch with this code already exists in this branch.', 409);
-
     if ($action === 'create') {
+        $duplicateCode = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = ? LIMIT 1');
+        $duplicateCode->execute([$branchId, $code]);
+        if ($duplicateCode->fetchColumn()) aec_fail('A batch with this code already exists in this branch.', 409);
         $stmt = $db->prepare('INSERT INTO batches (course_id, branch_id, name, batch_code, schedule_label, room_number, instructor_user_id, max_capacity, start_date, end_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         try {
             $stmt->execute([$courseId, $branchId, $name, $code, $schedule ?: null, $room ?: null, $instructorId, $capacity, $startDate, $endDate, $status, (int)$actor['id']]);
@@ -136,6 +133,9 @@ if ($action === 'create' || $action === 'update') {
     }
 
     $id = aec_batch_id();
+    $duplicateCode = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = ? AND id <> ? LIMIT 1');
+    $duplicateCode->execute([$branchId, $code, $id]);
+    if ($duplicateCode->fetchColumn()) aec_fail('A batch with this code already exists in this branch.', 409);
     $scope = $db->prepare('SELECT branch_id, course_id FROM batches WHERE id = ? AND deleted_at IS NULL FOR UPDATE');
     $scope->execute([$id]); $existing = $scope->fetch();
     if (!$existing) aec_fail('Batch not found.', 404);
@@ -143,7 +143,7 @@ if ($action === 'create' || $action === 'update') {
     $newBranchId = $branchId;
     $oldBranchId = $existing['branch_id'] === null ? null : (int)$existing['branch_id'];
     if ((int)$existing['course_id'] !== (int)$courseId || $oldBranchId !== $newBranchId) {
-        $activeRoster = $db->prepare("SELECT COUNT(*) FROM batch_enrollments WHERE batch_id = ? AND status = 'active'");
+        $activeRoster = $db->prepare("SELECT COUNT(*) FROM batch_enrollments be JOIN batches b ON b.id = be.batch_id JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id AND ce.status IN ('active','completed') WHERE be.batch_id = ? AND be.status = 'active'");
         $activeRoster->execute([$id]);
         if ((int)$activeRoster->fetchColumn() > 0) aec_fail('Unenroll all active students before changing a batch course or branch.', 409);
     }

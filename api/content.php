@@ -302,14 +302,23 @@ if (in_array($action, ['create','update','delete','attach','detach','sync_links'
         $actor = aec_require_permission('content.manage');
         $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
         if (!$id) aec_fail('A valid content id is required.', 422);
-        $select = $db->prepare('SELECT id, title, content_type, status, created_by FROM content_items WHERE id = ? AND deleted_at IS NULL LIMIT 1');
-        $select->execute([$id]); $content = $select->fetch();
-        if (!$content) aec_fail('Content not found.', 404);
-        $db->prepare('UPDATE content_items SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL')->execute([$id]);
-        aec_recycle_bin_record($db, $actor, 'content', (int)$id, (string)$content['title'], null, [
-            'status' => $content['status'], 'content_type' => $content['content_type'], 'created_by' => $content['created_by'],
-        ]);
-        aec_ok(['id' => (int)$id], 'Content moved to recycle bin.');
+        $db->beginTransaction();
+        try {
+            $select = $db->prepare('SELECT id, title, content_type, status, created_by FROM content_items WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE');
+            $select->execute([$id]); $content = $select->fetch();
+            if (!$content) aec_fail('Content not found.', 404);
+            $update = $db->prepare('UPDATE content_items SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL');
+            $update->execute([$id]);
+            if ($update->rowCount() !== 1) aec_fail('Content item is already deleted.', 409);
+            aec_recycle_bin_record($db, $actor, 'content', (int)$id, (string)$content['title'], null, [
+                'status' => $content['status'], 'content_type' => $content['content_type'], 'created_by' => $content['created_by'],
+            ]);
+            $db->commit();
+            aec_ok(['id' => (int)$id], 'Content moved to recycle bin.');
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $error;
+        }
     }
 
     $title = trim((string)($input['title'] ?? ''));

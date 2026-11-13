@@ -359,7 +359,7 @@ class ApiService {
   public teacherCommissions = {
     getSummary: (teacherId?: string | number) => this.request<{
       commissions: Array<Record<string, unknown>>;
-      totals: { gross_commission: string; paid_commission: string; reserved_payouts: string; available_balance: string; overpaid_commission?: string };
+      totals: { gross_commission: string; paid_commission: string; reserved_payouts: string; available_balance: string; overpaid_commission: string };
     }>(`/teacher_commissions.php?action=summary${teacherId ? `&teacher_id=${encodeURIComponent(String(teacherId))}` : ''}`),
     getAssignments: () => this.request<Array<Record<string, unknown>>>('/teacher_commissions.php?action=assignments'),
     assign: (courseId: number, teacherUserId: number, commissionPercentage: number) =>

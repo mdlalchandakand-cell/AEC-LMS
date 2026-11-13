@@ -180,15 +180,22 @@ if ($action === 'delete' || $action === 'restore') {
     if (!$batch) aec_fail('Batch not found.', 404);
     aec_batch_branch_check($db, $actor, $batch['branch_id'] === null ? null : (int)$batch['branch_id']);
     if ($action === 'delete') {
-        $details = $db->prepare('SELECT name, batch_code, status, branch_id, course_id FROM batches WHERE id = ? AND deleted_at IS NULL LIMIT 1');
-        $details->execute([$id]); $batchDetails = $details->fetch();
-        if (!$batchDetails) aec_fail('Batch not found.', 404);
-        $db->prepare('UPDATE batches SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL')->execute([$id]);
-        aec_recycle_bin_record($db, $actor, 'batch', $id, (string)$batchDetails['name'], $batchDetails['branch_id'] === null ? null : (int)$batchDetails['branch_id'], [
-            'status' => $batchDetails['status'], 'batch_code' => $batchDetails['batch_code'], 'course_id' => (int)$batchDetails['course_id'],
-        ]);
-        aec_batch_audit($db, $actor, 'batch.deleted', $id);
-        aec_ok(['id' => $id], 'Batch moved to recycle bin.');
+        $db->beginTransaction();
+        try {
+            $details = $db->prepare('SELECT name, batch_code, status, branch_id, course_id FROM batches WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE');
+            $details->execute([$id]); $batchDetails = $details->fetch();
+            if (!$batchDetails) aec_fail('Batch not found.', 404);
+            $db->prepare('UPDATE batches SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL')->execute([$id]);
+            aec_recycle_bin_record($db, $actor, 'batch', $id, (string)$batchDetails['name'], $batchDetails['branch_id'] === null ? null : (int)$batchDetails['branch_id'], [
+                'status' => $batchDetails['status'], 'batch_code' => $batchDetails['batch_code'], 'course_id' => (int)$batchDetails['course_id'],
+            ]);
+            aec_batch_audit($db, $actor, 'batch.deleted', $id);
+            $db->commit();
+            aec_ok(['id' => $id], 'Batch moved to recycle bin.');
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $error;
+        }
     }
     $duplicate = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = (SELECT batch_code FROM batches WHERE id = ?) AND id <> ? LIMIT 1');
     $duplicate->execute([$batch['branch_id'], $id, $id]);

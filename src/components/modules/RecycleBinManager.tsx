@@ -97,8 +97,9 @@ export const RecycleBinManager: React.FC = () => {
       setSuccess(isBn ? 'আইটেমটি স্থায়ীভাবে মুছে ফেলা হয়েছে।' : 'Item permanently deleted.');
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : (isBn ? 'স্থায়ীভাবে মুছতে ব্যর্থ।' : 'Permanent deletion failed.'));
+      const message = e instanceof Error ? e.message : (isBn ? 'স্থায়ীভাবে মুছতে ব্যর্থ।' : 'Permanent deletion failed.');
       await load();
+      setError(message);
     } finally { setBusy(false); }
   };
 

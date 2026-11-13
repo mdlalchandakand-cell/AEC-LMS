@@ -568,10 +568,9 @@ export const LmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
 
   // 5. Envato CodeCanyon Licensing State
-  const [envatoLicense, setEnvatoLicense] = useState<EnvatoLicenseInfo>(() => {
-    const saved = localStorage.getItem('aec_lms_envato_license');
-    return saved ? JSON.parse(saved) : initialEnvatoLicense;
-  });
+  // License state is not trusted from browser storage. Only a server-side
+  // verification response may mark a purchase code as valid.
+  const [envatoLicense] = useState<EnvatoLicenseInfo>(initialEnvatoLicense);
 
   // Active view router state
   const [activeView, setActiveView] = useState<'home' | 'login' | 'courses' | 'learn' | 'instructors' | 'products' | 'ebooks' | 'live_classes' | 'exams' | 'admission' | 'about' | 'contact' | 'dashboard' | 'classroom' | 'take_exam' | 'certificate_view' | 'id_card_view'>(() => new URLSearchParams(window.location.search).has('account_action') ? 'login' : 'home');

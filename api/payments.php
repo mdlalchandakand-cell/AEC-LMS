@@ -185,19 +185,6 @@ if ($action === 'verify' || $action === 'reject') {
         $db->prepare("UPDATE course_payments SET status = 'verified', reviewed_at = NOW(), reviewed_by = ? WHERE id = ?")
             ->execute([(int)$actor['id'], $id]);
 
-        // Snapshot each active teacher assignment at verification time. Later
-        // rate changes or unassignments must never rewrite past earnings.
-        $commissionEntries = $db->prepare("INSERT IGNORE INTO teacher_commission_entries
-            (payment_id, assignment_id, teacher_user_id, course_id, branch_id,
-             commission_percentage_snapshot, payment_amount_snapshot, currency)
-            SELECT p.id, a.id, a.teacher_user_id, p.course_id, a.branch_id,
-                   a.commission_percentage, p.amount, p.currency
-            FROM course_payments p
-            JOIN teacher_course_assignments a ON a.course_id = p.course_id
-            WHERE p.id = ? AND a.is_active = 1
-              AND (a.branch_id IS NULL OR a.branch_id = p.branch_id)");
-        $commissionEntries->execute([$id]);
-
         $accountCode = $payment['payment_method'] === 'Bank Transfer'
             ? 'ASSET_BANK_CLEARING'
             : 'ASSET_BKASH_NAGAD_CLEARING';

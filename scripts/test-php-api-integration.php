@@ -892,6 +892,8 @@ try {
         'start_date' => '2026-11-15', 'end_date' => '2027-03-01', 'status' => 'upcoming',
     ], $cookie, $csrf), 201, 'Admin creates a persistent academic batch');
     $batchId = (int)$batch['data']['id'];
+    $eligibleBatchStudents = expect_status(api_request($base, '/api/batches.php?action=eligible_students&batch_id=' . $batchId, 'GET', null, $cookie), 200, 'Admin loads students eligible for batch placement');
+    check(count(array_filter($eligibleBatchStudents['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $studentId)) === 1, 'Eligible student directory omitted the active course enrollee.');
     $routine = expect_status(api_request($base, '/api/batches.php?action=create_routine', 'POST', [
         'batch_id' => $batchId, 'day_of_week' => 'Sunday', 'start_time' => '10:00', 'end_time' => '11:00',
         'subject' => 'Grammar Practice', 'room_number' => 'Test Room 1', 'instructor_user_id' => $teacherId,
@@ -904,6 +906,8 @@ try {
     expect_status(api_request($base, '/api/batches.php?action=enroll&id=' . $batchId, 'POST', [
         'student_user_id' => $studentId,
     ], $cookie, $csrf), 201, 'Admin enrolls an already-enrolled student into the batch');
+    $eligibleAfterPlacement = expect_status(api_request($base, '/api/batches.php?action=eligible_students&batch_id=' . $batchId, 'GET', null, $cookie), 200, 'Eligible student directory refreshes after placement');
+    check(!in_array($studentId, array_map(static fn(array $row): int => (int)$row['id'], $eligibleAfterPlacement['data'] ?? []), true), 'Already-placed student remained in the eligible student directory.');
     $batchStudents = expect_status(api_request($base, '/api/batches.php?action=students&batch_id=' . $batchId, 'GET', null, $cookie), 200, 'Admin views batch student roster');
     check(count($batchStudents['data'] ?? []) === 1 && (int)$batchStudents['data'][0]['user_id'] === $studentId, 'Batch roster did not include the enrolled student.');
     $studentBatches = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student views own assigned batches');

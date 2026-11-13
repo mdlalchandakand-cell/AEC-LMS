@@ -24,6 +24,24 @@ function aec_commission_audit(PDO $db, array $actor, string $event, int $entityI
     ]);
 }
 
+function aec_commission_lock_revenue_rows(PDO $db, int $teacherId): void {
+    // Refunds lock the course payment row. Lock the same verified payment rows
+    // while reserving/reviewing/settling a payout so a concurrent refund cannot
+    // reduce commission between the balance check and the payout transition.
+    $stmt = $db->prepare("SELECT p.id
+        FROM course_payments p
+        JOIN teacher_course_assignments a ON a.course_id = p.course_id
+          AND a.teacher_user_id = ?
+          AND p.reviewed_at >= a.assigned_at
+          AND (a.unassigned_at IS NULL OR p.reviewed_at < a.unassigned_at)
+          AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)
+        WHERE p.status IN ('verified','refunded')
+        ORDER BY p.id
+        FOR UPDATE");
+    $stmt->execute([$teacherId]);
+    $stmt->fetchAll(PDO::FETCH_COLUMN);
+}
+
 function aec_commission_gross_cents(PDO $db, int $teacherId): int {
     $stmt = $db->prepare("SELECT COALESCE(SUM(ROUND((
           SELECT COALESCE(SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)), 0)
@@ -260,6 +278,7 @@ if ($action === 'request_payout') {
         $lock = $db->prepare('SELECT id, branch_id FROM users WHERE id = ? AND is_active = 1 FOR UPDATE');
         $lock->execute([(int)$actor['id']]); $teacher = $lock->fetch();
         if (!$teacher) aec_fail('Teacher account is unavailable.', 404);
+        aec_commission_lock_revenue_rows($db, (int)$actor['id']);
         $gross = aec_commission_gross_cents($db, (int)$actor['id']);
         $totals = aec_commission_payout_totals($db, (int)$actor['id']);
         $available = max(0, $gross - $totals['paid'] - $totals['reserved']);
@@ -298,6 +317,7 @@ if ($action === 'review_payout') {
             $teacherLock = $db->prepare('SELECT id FROM users WHERE id = ? AND is_active = 1 FOR UPDATE');
             $teacherLock->execute([(int)$payout['teacher_user_id']]);
             if (!$teacherLock->fetchColumn()) aec_fail('Teacher account is unavailable.', 404);
+            aec_commission_lock_revenue_rows($db, (int)$payout['teacher_user_id']);
             $gross = aec_commission_gross_cents($db, (int)$payout['teacher_user_id']);
             $totals = aec_commission_payout_totals($db, (int)$payout['teacher_user_id']);
             $amount = aec_commission_money_cents((string)$payout['amount']);
@@ -340,6 +360,7 @@ if ($action === 'mark_paid') {
         $teacherLock = $db->prepare('SELECT id FROM users WHERE id = ? AND is_active = 1 FOR UPDATE');
         $teacherLock->execute([(int)$payout['teacher_user_id']]);
         if (!$teacherLock->fetchColumn()) aec_fail('Teacher account is unavailable.', 404);
+        aec_commission_lock_revenue_rows($db, (int)$payout['teacher_user_id']);
         $gross = aec_commission_gross_cents($db, (int)$payout['teacher_user_id']);
         $totals = aec_commission_payout_totals($db, (int)$payout['teacher_user_id']);
         $amount = aec_commission_money_cents((string)$payout['amount']);

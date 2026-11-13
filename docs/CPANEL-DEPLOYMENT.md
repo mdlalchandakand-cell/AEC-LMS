@@ -132,3 +132,6 @@ Do not label the repository or any ZIP as a ready-to-use full LMS until those ga
 - Set PHP `upload_max_filesize` and `post_max_size` to at least `20M`; ensure the web server request-body limit is also at least 20 MB.
 - The API currently allows JPG, PNG, WebP, GIF, PDF, MP3, M4A, OGG, MP4 and WebM. Download delivery requires an authenticated content manager or an enrolled student with access to the linked course.
 - On Nginx or a host that does not honor Apache `.htaccess`, move private storage outside the document root and update the storage path in `api/media.php` and `api/storefront.php` before production use.
+
+
+Migration 028 adds persistent academic batches, batch student placements, and weekly routine slots. Apply it after migrations 025 and 027.

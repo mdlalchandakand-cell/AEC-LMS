@@ -196,7 +196,8 @@ if ($action === 'assign') {
 
 if ($action === 'unassign') {
     aec_method(['POST']);
-    $actor = aec_require_permission('teacher_commissions.payouts.manage');
+    $actor = aec_require_permission('teacher_commissions.manage');
+    aec_assert_active_branch($db, $actor);
     aec_csrf_check();
     $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$id || $id < 1) aec_fail('A valid assignment id is required.', 422);

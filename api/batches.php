@@ -200,10 +200,17 @@ if ($action === 'delete' || $action === 'restore') {
     $duplicate = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = (SELECT batch_code FROM batches WHERE id = ?) AND id <> ? LIMIT 1');
     $duplicate->execute([$batch['branch_id'], $id, $id]);
     if ($duplicate->fetchColumn()) aec_fail('Another batch already uses this code in the branch; rename it before restoring.', 409);
-    $db->prepare('UPDATE batches SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL')->execute([$id]);
-    $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'batch' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], $id]);
-    aec_batch_audit($db, $actor, 'batch.restored', $id);
-    aec_ok(['id' => $id], 'Batch restored.');
+    $db->beginTransaction();
+    try {
+        $db->prepare('UPDATE batches SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL')->execute([$id]);
+        $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'batch' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], $id]);
+        aec_batch_audit($db, $actor, 'batch.restored', $id);
+        $db->commit();
+        aec_ok(['id' => $id], 'Batch restored.');
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $error;
+    }
 }
 
 if ($action === 'enroll' || $action === 'unenroll') {

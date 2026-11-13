@@ -33,11 +33,12 @@ function aec_commission_gross_cents(PDO $db, int $teacherId): int {
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
           WHERE p.course_id = a.course_id AND p.status IN ('verified','refunded')
+            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at <= a.unassigned_at)
             AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)
         ) * 100 * a.commission_percentage / 100, 0)), 0)
         FROM teacher_course_assignments a
         JOIN courses c ON c.id = a.course_id
-        WHERE a.teacher_user_id = ? AND a.is_active = 1 AND c.deleted_at IS NULL");
+        WHERE a.teacher_user_id = ? AND c.deleted_at IS NULL");
     $stmt->execute([$teacherId]);
     return max(0, (int)round((float)$stmt->fetchColumn()));
 }
@@ -78,7 +79,7 @@ if ($action === 'summary') {
             $teacherId = (int)$target;
         }
     }
-    $where = ' WHERE a.is_active = 1 AND c.deleted_at IS NULL';
+    $where = ' WHERE c.deleted_at IS NULL';
     $params = [];
     if ($teacherId !== null) { $where .= ' AND a.teacher_user_id = ?'; $params[] = $teacherId; }
     if ($actor['role'] === 'branch_manager') {
@@ -183,7 +184,7 @@ if ($action === 'assign') {
         if ((float)$rateStmt->fetchColumn() + (float)$rate > 100.0001) aec_fail('Combined teacher commission rates for a course cannot exceed 100%.', 422);
         $stmt = $db->prepare("INSERT INTO teacher_course_assignments (course_id, teacher_user_id, branch_id, commission_percentage, is_active, assigned_by)
             VALUES (?, ?, ?, ?, 1, ?)
-            ON DUPLICATE KEY UPDATE branch_id = VALUES(branch_id), commission_percentage = VALUES(commission_percentage), is_active = 1, assigned_by = VALUES(assigned_by), updated_at = NOW()");
+            ON DUPLICATE KEY UPDATE branch_id = VALUES(branch_id), commission_percentage = VALUES(commission_percentage), is_active = 1, assigned_at = NOW(), unassigned_at = NULL, assigned_by = VALUES(assigned_by), updated_at = NOW()");
         $stmt->execute([$courseId, $teacherId, $branchId, number_format((float)$rate, 2, '.', ''), (int)$actor['id']]);
         $idStmt = $db->prepare('SELECT id FROM teacher_course_assignments WHERE course_id = ? AND teacher_user_id = ?');
         $idStmt->execute([$courseId, $teacherId]); $id = (int)$idStmt->fetchColumn();
@@ -203,7 +204,7 @@ if ($action === 'unassign') {
     aec_csrf_check();
     $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$id || $id < 1) aec_fail('A valid assignment id is required.', 422);
-    $sql = 'UPDATE teacher_course_assignments SET is_active = 0, updated_at = NOW() WHERE id = ? AND is_active = 1';
+    $sql = 'UPDATE teacher_course_assignments SET is_active = 0, unassigned_at = NOW(), updated_at = NOW() WHERE id = ? AND is_active = 1';
     $params = [$id];
     if ($actor['role'] === 'branch_manager') { $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id']; }
     $stmt = $db->prepare($sql); $stmt->execute($params);

@@ -54,7 +54,7 @@ Some dashboard modules still contain legacy/demo data in `LmsContext`; a visible
 
 ## Validation
 
-GitHub Actions checks PHP 8.3 syntax and migration safety, applies migrations to disposable MySQL 8.4 and runs PHP HTTP integration tests, and type-checks/builds the frontend. Required browser E2E and deployment rehearsal are separate release gates.
+GitHub Actions checks PHP 8.3 syntax and migration safety, applies migrations to disposable MySQL 8.4 and runs PHP HTTP integration tests, type-checks/builds the frontend, runs CodeQL and assembles/inspects the real cPanel deployment ZIP. Required browser E2E and a clean cPanel installation/upgrade rehearsal are separate release gates.
 
 ## Development
 

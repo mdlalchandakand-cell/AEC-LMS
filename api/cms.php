@@ -364,11 +364,21 @@ if (in_array($action, ['create_post','update_post','delete_post','create_testimo
 
     if ($action === 'delete_post' || $action === 'delete_testimonial') {
         if (!$id || $id < 1) aec_fail('A valid content identifier is required.', 422);
-        $table = $action === 'delete_post' ? 'cms_posts' : 'cms_testimonials';
+        $isPost = $action === 'delete_post';
+        $table = $isPost ? 'cms_posts' : 'cms_testimonials';
+        $select = $db->prepare("SELECT * FROM {$table} WHERE id = ? AND deleted_at IS NULL LIMIT 1");
+        $select->execute([$id]); $record = $select->fetch();
+        if (!$record) aec_fail('Content item not found.', 404);
         $stmt = $db->prepare("UPDATE {$table} SET status = 'archived', deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL");
         $stmt->execute([$id]);
         if (!$stmt->rowCount()) aec_fail('Content item not found.', 404);
-        aec_ok(['id' => $id], 'Content item archived.');
+        $entityType = $isPost ? 'cms_post' : 'cms_testimonial';
+        $title = $isPost ? (string)$record['title'] : (string)$record['student_name'];
+        $snapshot = $isPost
+            ? ['status' => $record['status'], 'slug' => $record['slug'], 'category' => $record['category']]
+            : ['status' => $record['status'], 'achievement' => $record['achievement']];
+        aec_recycle_bin_record($db, $actor, $entityType, (int)$id, $title, null, $snapshot);
+        aec_ok(['id' => $id], 'Content item archived and moved to recycle bin.');
     }
 
     if ($action === 'create_post' || $action === 'update_post') {

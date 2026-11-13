@@ -69,7 +69,7 @@ if ($action === 'list') {
         $sql .= ' AND (b.instructor_user_id = ? OR EXISTS (SELECT 1 FROM batch_routine_slots r WHERE r.batch_id = b.id AND r.instructor_user_id = ? AND r.deleted_at IS NULL))';
         $params[] = (int)$actor['id']; $params[] = (int)$actor['id'];
     } elseif ($actor['role'] === 'student') {
-        $sql .= " AND EXISTS (SELECT 1 FROM batch_enrollments be
+        $sql .= " AND b.status <> 'cancelled' AND EXISTS (SELECT 1 FROM batch_enrollments be
             JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id
               AND ce.status IN ('active','completed')
             WHERE be.batch_id = b.id AND be.user_id = ? AND be.status = 'active')";
@@ -207,6 +207,7 @@ if ($action === 'enroll' || $action === 'unenroll') {
         $batchStmt->execute([$batchId]); $batch = $batchStmt->fetch();
         if (!$batch) aec_fail('Batch not found.', 404);
         aec_batch_branch_check($db, $actor, $batch['branch_id'] === null ? null : (int)$batch['branch_id']);
+        if ($action === 'enroll' && !in_array($batch['status'], ['upcoming','ongoing'], true)) aec_fail('Students can only be added to upcoming or ongoing batches.', 409);
         $studentStmt = $db->prepare("SELECT id, branch_id, role, is_active FROM users WHERE id = ? LIMIT 1");
         $studentStmt->execute([$studentId]); $student = $studentStmt->fetch();
         if (!$student || !(bool)$student['is_active'] || $student['role'] !== 'student') aec_fail('Active student account not found.', 404);
@@ -262,10 +263,11 @@ if ($action === 'eligible_students') {
     aec_assert_active_branch($db, $actor);
     $batchId = filter_input(INPUT_GET, 'batch_id', FILTER_VALIDATE_INT);
     if (!$batchId || $batchId < 1) aec_fail('A valid batch_id is required.', 422);
-    $batchStmt = $db->prepare('SELECT course_id, branch_id FROM batches WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+    $batchStmt = $db->prepare('SELECT course_id, branch_id, status FROM batches WHERE id = ? AND deleted_at IS NULL LIMIT 1');
     $batchStmt->execute([$batchId]); $batch = $batchStmt->fetch();
     if (!$batch) aec_fail('Batch not found.', 404);
     aec_batch_branch_check($db, $actor, $batch['branch_id'] === null ? null : (int)$batch['branch_id']);
+    if (!in_array($batch['status'], ['upcoming','ongoing'], true)) aec_fail('Students can only be added to upcoming or ongoing batches.', 409);
     $sql = "SELECT u.id, u.name, u.email, u.phone
         FROM users u
         JOIN course_enrollments ce ON ce.user_id = u.id AND ce.course_id = ?
@@ -309,7 +311,7 @@ if ($action === 'routines') {
     } elseif (in_array($actor['role'], ['teacher','assistant_teacher'], true)) {
         $sql .= ' AND (r.instructor_user_id = ? OR b.instructor_user_id = ?)'; $params[] = (int)$actor['id']; $params[] = (int)$actor['id'];
     } elseif ($actor['role'] === 'student') {
-        $sql .= " AND EXISTS (SELECT 1 FROM batch_enrollments be
+        $sql .= " AND b.status <> 'cancelled' AND EXISTS (SELECT 1 FROM batch_enrollments be
             JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id
               AND ce.status IN ('active','completed')
             WHERE be.batch_id = b.id AND be.user_id = ? AND be.status = 'active')"; $params[] = (int)$actor['id'];
@@ -344,6 +346,7 @@ if ($action === 'create_routine') {
         $batchStmt->execute([$batchId]); $batch = $batchStmt->fetch();
         if (!$batch) aec_fail('Batch not found.', 404);
         aec_batch_branch_check($db, $actor, $batch['branch_id'] === null ? null : (int)$batch['branch_id']);
+        if (!in_array($batch['status'], ['upcoming','ongoing'], true)) aec_fail('Routine slots can only be added to upcoming or ongoing batches.', 409);
         $instructorId = $instructorId ?: (int)$batch['instructor_user_id'];
         $teacherStmt = $db->prepare("SELECT id, role, branch_id, is_active FROM users WHERE id = ? LIMIT 1");
         $teacherStmt->execute([$instructorId]); $teacher = $teacherStmt->fetch();

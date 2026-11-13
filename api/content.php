@@ -299,12 +299,17 @@ if (in_array($action, ['create','update','delete','attach','detach','sync_links'
     }
 
     if ($action === 'delete') {
+        $actor = aec_require_permission('content.manage');
         $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
         if (!$id) aec_fail('A valid content id is required.', 422);
-        $stmt = $db->prepare('UPDATE content_items SET deleted_at=NOW(), updated_at=NOW() WHERE id=? AND deleted_at IS NULL');
-        $stmt->execute([$id]);
-        if (!$stmt->rowCount()) aec_fail('Content not found.', 404);
-        aec_ok(null, 'Content moved to recycle bin.');
+        $select = $db->prepare('SELECT id, title, content_type, status, created_by FROM content_items WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+        $select->execute([$id]); $content = $select->fetch();
+        if (!$content) aec_fail('Content not found.', 404);
+        $db->prepare('UPDATE content_items SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL')->execute([$id]);
+        aec_recycle_bin_record($db, $actor, 'content', (int)$id, (string)$content['title'], null, [
+            'status' => $content['status'], 'content_type' => $content['content_type'], 'created_by' => $content['created_by'],
+        ]);
+        aec_ok(['id' => (int)$id], 'Content moved to recycle bin.');
     }
 
     $title = trim((string)($input['title'] ?? ''));

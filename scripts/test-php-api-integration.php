@@ -933,6 +933,16 @@ try {
     ], $cookie, $csrf), 200, 'Admin reassigns the teacher with a new commission period');
     $reassignedSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin verifies re-assignment preserves earlier earnings');
     check((float)($reassignedSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Reassigning a teacher overwrote the previous commission period.');
+    $teacherAfterReassignCookie = null;
+    $teacherAfterReassignLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', [
+        'email' => "api-teacher-{$suffix}@example.test", 'password' => 'TestTeacher!Pass123',
+    ], $teacherAfterReassignCookie), 200, 'Teacher re-login for second payout reservation');
+    $teacherAfterReassignCsrf = $teacherAfterReassignLogin['data']['csrf_token'] ?? null;
+    $secondPayout = expect_status(api_request($base, '/api/teacher_commissions.php?action=request_payout', 'POST', [
+        'amount' => '80.00', 'payout_method' => 'Nagad', 'account_reference' => '01800000000',
+    ], $teacherAfterReassignCookie, $teacherAfterReassignCsrf), 201, 'Teacher reserves a second payout before refund adjustment');
+    $secondPayoutRequestId = (int)$secondPayout['data']['id'];
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $teacherAfterReassignCookie, $teacherAfterReassignCsrf), 200, 'Teacher logout after second payout reservation');
     expect_status(api_request($base, '/api/teacher_commissions.php?action=assignments', 'GET', null, $branchManagerCookie), 403, 'Branch manager cannot use unscoped commission assignment management');
     $studentInboxAfterPayment = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives payment verification notification');
     check(count(array_filter($studentInboxAfterPayment['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Payment verified')) === 1, 'Payment verification did not notify the student.');
@@ -1173,6 +1183,12 @@ try {
     ], $branchManagerCookie, $branchManagerCsrf), 200, 'Branch manager records a provider-confirmed partial refund');
     check(($partialRefund['data']['payment_status'] ?? '') === 'verified', 'Partial refund unexpectedly changed the payment status.');
     check(($partialRefund['data']['remaining_refundable'] ?? '') === '750.00', 'Partial refund remaining balance is incorrect.');
+    $commissionAfterPartialRefund = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Commission summary reflects completed partial refunds');
+    check((float)($commissionAfterPartialRefund['data']['totals']['gross_commission'] ?? 0) === 450.0
+        && (float)($commissionAfterPartialRefund['data']['totals']['overpaid_commission'] ?? 0) === 50.0,
+        'Partial refunds did not reduce commission and show the already-paid recovery amount.');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $secondPayoutRequestId, 'POST', ['decision' => 'approve'], $cookie, $csrf), 409, 'Refund-adjusted balance blocks approval of an overdrawn pending payout');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $secondPayoutRequestId, 'POST', ['decision' => 'reject', 'reason' => 'Balance reduced after refund'], $cookie, $csrf), 200, 'Admin rejects the now-unfunded payout reservation');
     $studentInboxAfterRefund = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives refund notification');
     check(count(array_filter($studentInboxAfterRefund['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Payment refund recorded')) === 1, 'Refund recording did not notify the student.');
     check(($partialRefund['data']['course_access_cancelled'] ?? false) === true, 'Course access was not cancelled after net paid fell below the course fee.');
@@ -1192,6 +1208,10 @@ try {
     $paymentAfterRefund = $db->prepare('SELECT status FROM course_payments WHERE id = ?');
     $paymentAfterRefund->execute([$paymentId]);
     check($paymentAfterRefund->fetchColumn() === 'refunded', 'Payment status was not marked refunded after full refund.');
+    $commissionAfterFullRefund = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Commission summary reflects the full refund');
+    check((float)($commissionAfterFullRefund['data']['totals']['gross_commission'] ?? 0) === 0.0
+        && (float)($commissionAfterFullRefund['data']['totals']['overpaid_commission'] ?? 0) === 500.0,
+        'Full refund did not remove the earned commission and report the already-paid recovery amount.');
     $enrollmentAfterRefund = $db->prepare('SELECT status FROM course_enrollments WHERE user_id = ? AND course_id = ?');
     $enrollmentAfterRefund->execute([$studentId, $courseIds[0]]);
     check($enrollmentAfterRefund->fetchColumn() === 'cancelled', 'Course enrollment was not cancelled after full refund.');
@@ -1368,13 +1388,13 @@ try {
     }
     if ($guardianOtherBranchStudentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$guardianOtherBranchStudentId]);
     if ($guardianId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$guardianId]);
-    if ($adminId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$adminId]);
-    if ($studentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$studentId]);
     if ($accountantId !== null) {
         $db->prepare('DELETE FROM notifications WHERE recipient_user_id = ? OR sender_user_id = ?')->execute([$accountantId, $accountantId]);
         $db->prepare('DELETE FROM audit_logs WHERE user_id = ?')->execute([$accountantId]);
         $db->prepare('DELETE FROM users WHERE id = ?')->execute([$accountantId]);
     }
+    if ($adminId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$adminId]);
+    if ($studentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$studentId]);
     if ($teacherId !== null) {
         $db->prepare('DELETE FROM teacher_payout_requests WHERE teacher_user_id = ?')->execute([$teacherId]);
         $db->prepare('DELETE FROM notifications WHERE recipient_user_id = ? OR sender_user_id = ?')->execute([$teacherId, $teacherId]);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
-import { Trash2, RotateCcw, AlertTriangle, ShieldCheck, Search, RefreshCw, FileText, Layers, BookOpen, AlertCircle } from 'lucide-react';
+import { Trash2, RotateCcw, AlertTriangle, ShieldCheck, Search, RefreshCw, FileText, Layers, BookOpen, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 type RecycleItem = {
   id: number; entity_type: string; entity_id: number; title: string;

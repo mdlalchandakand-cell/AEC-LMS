@@ -39,7 +39,7 @@ if ($action === 'my_students') {
     $actor = aec_current_user();
     if ($actor['role'] !== 'guardian') aec_fail('Only guardian accounts can view linked students.', 403);
     $stmt = $db->prepare("SELECT l.id AS link_id, l.relationship, l.status, l.requested_at, l.reviewed_at,
-        u.id AS student_user_id, u.name AS student_name, u.email AS student_email, u.phone AS student_phone,
+        u.id AS student_user_id, u.name AS student_name, u.email AS student_email, CASE WHEN l.status = 'active' THEN u.phone ELSE NULL END AS student_phone,
         u.branch_id
         FROM guardian_student_links l
         JOIN users u ON u.id = l.student_user_id
@@ -61,6 +61,12 @@ if ($action === 'request') {
     $relationship = trim((string)($input['relationship'] ?? 'Guardian'));
     if (!filter_var($email, FILTER_VALIDATE_EMAIL) || mb_strlen($email) > 190) aec_fail('Enter the student account email address.', 422);
     if ($relationship === '' || mb_strlen($relationship) > 60) aec_fail('Relationship must be between 1 and 60 characters.', 422);
+
+    $requestIp = substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45) ?: 'unknown';
+    $rateStmt = $db->prepare("SELECT COUNT(*) FROM account_action_attempts WHERE action = 'guardian_link' AND email = ? AND ip_address = ? AND attempted_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)");
+    $rateStmt->execute([$email, $requestIp]);
+    if ((int)$rateStmt->fetchColumn() >= 5) aec_fail('Too many guardian-link requests. Try again later.', 429);
+    $db->prepare("INSERT INTO account_action_attempts (action, email, ip_address) VALUES ('guardian_link', ?, ?)")->execute([$email, $requestIp]);
 
     $studentStmt = $db->prepare("SELECT id, name, email, role, branch_id, is_active FROM users WHERE email = ? AND role = 'student' LIMIT 1");
     $studentStmt->execute([$email]);

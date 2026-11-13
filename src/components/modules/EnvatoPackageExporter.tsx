@@ -162,7 +162,7 @@ export const EnvatoPackageExporter: React.FC = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
           <div>
             <span className="text-slate-400 block text-[10px] uppercase font-semibold">License Status</span>
-            <span className={`font-bold ${envatoLicense.isValid ? 'text-emerald-600' : 'text-amber-700'} flex items-center gap-1 mt-0.5">
+            <span className={`font-bold ${envatoLicense.isValid ? 'text-emerald-600' : 'text-amber-700'} flex items-center gap-1 mt-0.5`}
               <span className={`w-2 h-2 rounded-full ${envatoLicense.isValid ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
               <span>{envatoLicense.isValid ? 'Verified' : 'Not verified'}</span>
             </span>

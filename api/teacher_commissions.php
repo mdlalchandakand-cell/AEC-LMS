@@ -184,12 +184,12 @@ if ($action === 'assign') {
         $rateStmt = $db->prepare('SELECT COALESCE(SUM(commission_percentage), 0) FROM teacher_course_assignments WHERE course_id = ? AND is_active = 1 AND teacher_user_id <> ?');
         $rateStmt->execute([$courseId, $teacherId]);
         if ((float)$rateStmt->fetchColumn() + (float)$rate > 100.0001) aec_fail('Combined teacher commission rates for a course cannot exceed 100%.', 422);
-        $stmt = $db->prepare("INSERT INTO teacher_course_assignments (course_id, teacher_user_id, branch_id, commission_percentage, is_active, assigned_by)
-            VALUES (?, ?, ?, ?, 1, ?)
-            ON DUPLICATE KEY UPDATE branch_id = VALUES(branch_id), commission_percentage = VALUES(commission_percentage), is_active = 1, assigned_at = NOW(), unassigned_at = NULL, assigned_by = VALUES(assigned_by), updated_at = NOW()");
+        $db->prepare("UPDATE teacher_course_assignments SET is_active = 0, unassigned_at = NOW(), updated_at = NOW()
+            WHERE course_id = ? AND teacher_user_id = ? AND is_active = 1")->execute([$courseId, $teacherId]);
+        $stmt = $db->prepare("INSERT INTO teacher_course_assignments (course_id, teacher_user_id, branch_id, commission_percentage, is_active, assigned_at, assigned_by)
+            VALUES (?, ?, ?, ?, 1, NOW(), ?)");
         $stmt->execute([$courseId, $teacherId, $branchId, number_format((float)$rate, 2, '.', ''), (int)$actor['id']]);
-        $idStmt = $db->prepare('SELECT id FROM teacher_course_assignments WHERE course_id = ? AND teacher_user_id = ?');
-        $idStmt->execute([$courseId, $teacherId]); $id = (int)$idStmt->fetchColumn();
+        $id = (int)$db->lastInsertId();
         aec_commission_audit($db, $actor, 'teacher_commission.assigned', $id, ['course_id' => $courseId, 'teacher_user_id' => $teacherId, 'commission_percentage' => $rate]);
         $db->commit();
         aec_ok(['id' => $id], 'Teacher assigned to course.');

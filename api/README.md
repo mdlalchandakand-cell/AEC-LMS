@@ -2,6 +2,23 @@
 
 Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, HTTPS.
 
+
+## Academic batches and weekly routines
+
+`batches.php` stores academic cohorts, branch-aware student placements, and weekly class slots in MySQL. Student batch enrollment requires an active/completed course enrollment and respects batch capacity. Routine creation rejects overlapping bookings for the same instructor or room on the same branch/day. Batch deletion is soft-delete and can be restored.
+
+- `GET /api/batches.php?action=list` — administrator/branch-manager batch list; teachers see assigned batches; students see only their active batch placements.
+- `POST /api/batches.php?action=create` / `update&id={id}` — create or update a batch.
+- `POST /api/batches.php?action=delete&id={id}` / `restore&id={id}` — soft-delete and restore a batch.
+- `GET /api/batches.php?action=instructors` — branch-aware active instructor directory for batch managers.
+- `POST /api/batches.php?action=enroll&id={batch_id}` / `unenroll&id={batch_id}` — place or remove a student from a batch.
+- `GET /api/batches.php?action=students&batch_id={id}` — view the batch roster.
+- `GET /api/batches.php?action=routines` — role-scoped weekly schedule; students see only their enrolled batch routines.
+- `POST /api/batches.php?action=create_routine` — add a day/time/subject/instructor/room slot with server-side overlap validation.
+- `POST /api/batches.php?action=delete_routine&id={id}` — soft-delete a routine slot.
+
+Branch managers can only manage records in their active assigned branch. Students cannot be added to a batch unless they already have an active/completed enrollment in the associated course.
+
 ## Teacher commissions and payouts
 
 `teacher_commissions.php` calculates teacher earnings from verified course payments after completed refunds. A course may have multiple teacher assignments, but active commission rates for the same course may not exceed 100%. Teacher users can read only their own commission summary and request payouts. Administrators can assign teachers, review payout requests, and mark an approved request paid only after the actual bank/mobile transfer has been confirmed and its external transaction reference is recorded.

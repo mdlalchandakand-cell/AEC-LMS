@@ -2455,11 +2455,13 @@ export const initialPayoutRequests: PayoutRequest[] = [
 // ============================================================================
 
 export const initialMarketingSettings: MarketingSettings = {
-  googleAnalyticsId: 'G-AEC2025LMS',
-  googleTagManagerId: 'GTM-AEC8899',
-  metaPixelId: '984029104829103',
-  googleSearchConsoleToken: 'google-site-verification=AEC_GSC_VERIFY_982410',
-  metaConversionApiToken: 'EAAQ98402910...token',
+  // Provider IDs and tokens must be entered by the site owner in Admin Settings.
+  // Never ship fabricated IDs or placeholder access tokens as connected integrations.
+  googleAnalyticsId: '',
+  googleTagManagerId: '',
+  metaPixelId: '',
+  googleSearchConsoleToken: '',
+  metaConversionApiToken: '',
   siteTitleSeo: 'Alom\'s English Center | Premier Cambridge IELTS & Spoken English Institute Bangladesh',
   siteMetaDescription: 'Master IELTS Band 8.0+ and fluent spoken English with British Council certified mentors in Dhaka, Chittagong, and live online.',
   canonicalUrl: 'https://alomsenglishcenter.com',
@@ -2472,13 +2474,13 @@ export const initialMarketingSettings: MarketingSettings = {
 // ============================================================================
 
 export const initialEnvatoLicense: EnvatoLicenseInfo = {
-  purchaseCode: 'AEC-ENVATO-9824-7102-COMMERCIAL',
-  licenseType: 'Extended License',
-  buyerUsername: 'envato_elite_buyer',
-  supportedUntil: '2026-09-05',
-  itemVersion: '2.5.0 Production',
-  isValid: true,
-  domain: 'alomsenglishcenter.com'
+  purchaseCode: '',
+  licenseType: 'Regular License',
+  buyerUsername: '',
+  supportedUntil: '',
+  itemVersion: 'Unverified',
+  isValid: false,
+  domain: ''
 };
 
 // ============================================================================

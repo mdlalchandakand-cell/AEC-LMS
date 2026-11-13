@@ -20,8 +20,13 @@ done
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 cp -a "$DIST_DIR/." "$STAGING_DIR/"
-for required in api database scripts storage; do
+for required in api database storage; do
   cp -a "$ROOT_DIR/$required" "$STAGING_DIR/$required"
+done
+# Ship only production CLI tools; leave automated test runners in the source repository.
+mkdir -p "$STAGING_DIR/scripts"
+for tool in .htaccess migrate.php create-admin.php; do
+  cp "$ROOT_DIR/scripts/$tool" "$STAGING_DIR/scripts/$tool"
 done
 mkdir -p "$STAGING_DIR/docs"
 for guide in CPANEL-DEPLOYMENT.md RELEASE-READINESS-AUDIT.md COMMERCIAL-RELEASE-BLOCKERS.md; do

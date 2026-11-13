@@ -356,6 +356,13 @@ class ApiService {
   };
 
 
+  public recycleBin = {
+    getAll: () => this.request<Array<Record<string, unknown>>>('/recycle_bin.php?action=list'),
+    restore: (id: number) => this.request<{ id: number; entity_type: string; entity_id: number }>(`/recycle_bin.php?action=restore&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    permanentDelete: (id: number) => this.request<{ id: number }>(`/recycle_bin.php?action=permanent_delete&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    empty: () => this.request<{ purged: number; blocked: Array<{ id: number; title: string; reason: string }> }>('/recycle_bin.php?action=empty', { method: 'POST' }),
+  };
+
   public batches = {
     getAll: () => this.request<Array<Record<string, unknown>>>('/batches.php?action=list'),
     getRoutines: (batchId?: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=routines${batchId ? `&batch_id=${encodeURIComponent(String(batchId))}` : ''}`),

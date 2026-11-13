@@ -33,7 +33,7 @@ function aec_commission_gross_cents(PDO $db, int $teacherId): int {
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
           WHERE p.course_id = a.course_id AND p.status IN ('verified','refunded')
-            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at <= a.unassigned_at)
+            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at < a.unassigned_at)
             AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)
         ) * 100 * a.commission_percentage / 100, 0)), 0)
         FROM teacher_course_assignments a
@@ -97,7 +97,7 @@ if ($action === 'summary') {
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
           WHERE p.course_id = c.id AND p.status IN ('verified','refunded')
-            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at <= a.unassigned_at)
+            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at < a.unassigned_at)
             AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)) AS total_course_revenue,
         ROUND((SELECT COALESCE(SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)), 0)
           FROM course_payments p
@@ -106,7 +106,7 @@ if ($action === 'summary') {
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
           WHERE p.course_id = c.id AND p.status IN ('verified','refunded')
-            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at <= a.unassigned_at)
+            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at < a.unassigned_at)
             AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)) * a.commission_percentage / 100, 2) AS gross_commission
         FROM teacher_course_assignments a
         JOIN users t ON t.id = a.teacher_user_id
@@ -121,7 +121,7 @@ if ($action === 'summary') {
         $payouts = aec_commission_payout_totals($db, $teacherId);
     } else {
         $gross = 0;
-        foreach ($commissions as $row) $gross += (int)round((float)$row['gross_commission'] * 100);
+        foreach ($commissions as $row) $gross += max(0, aec_commission_money_cents((string)$row['gross_commission']));
         $payoutQuery = "SELECT
           COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) AS paid,
           COALESCE(SUM(CASE WHEN p.status IN ('pending','approved') THEN p.amount ELSE 0 END), 0) AS reserved
@@ -130,7 +130,7 @@ if ($action === 'summary') {
         if ($actor['role'] === 'branch_manager') { $payoutQuery .= ' WHERE p.branch_id = ?'; $payoutParams[] = (int)$actor['branch_id']; }
         $payoutStmt = $db->prepare($payoutQuery); $payoutStmt->execute($payoutParams);
         $payoutRow = $payoutStmt->fetch() ?: ['paid' => 0, 'reserved' => 0];
-        $payouts = ['paid' => (int)round((float)$payoutRow['paid'] * 100), 'reserved' => (int)round((float)$payoutRow['reserved'] * 100)];
+        $payouts = ['paid' => max(0, aec_commission_money_cents((string)$payoutRow['paid'])), 'reserved' => max(0, aec_commission_money_cents((string)$payoutRow['reserved']))];
     }
     aec_ok([
         'commissions' => $commissions,
@@ -139,6 +139,7 @@ if ($action === 'summary') {
             'paid_commission' => aec_commission_decimal($payouts['paid']),
             'reserved_payouts' => aec_commission_decimal($payouts['reserved']),
             'available_balance' => aec_commission_decimal(max(0, $gross - $payouts['paid'] - $payouts['reserved'])),
+            'overpaid_commission' => aec_commission_decimal(max(0, $payouts['paid'] - $gross)),
         ],
     ]);
 }
@@ -184,10 +185,10 @@ if ($action === 'assign') {
         $rateStmt = $db->prepare('SELECT COALESCE(SUM(commission_percentage), 0) FROM teacher_course_assignments WHERE course_id = ? AND is_active = 1 AND teacher_user_id <> ?');
         $rateStmt->execute([$courseId, $teacherId]);
         if ((float)$rateStmt->fetchColumn() + (float)$rate > 100.0001) aec_fail('Combined teacher commission rates for a course cannot exceed 100%.', 422);
-        $db->prepare("UPDATE teacher_course_assignments SET is_active = 0, unassigned_at = NOW(), updated_at = NOW()
+        $db->prepare("UPDATE teacher_course_assignments SET is_active = 0, unassigned_at = NOW(6), updated_at = NOW()
             WHERE course_id = ? AND teacher_user_id = ? AND is_active = 1")->execute([$courseId, $teacherId]);
         $stmt = $db->prepare("INSERT INTO teacher_course_assignments (course_id, teacher_user_id, branch_id, commission_percentage, is_active, assigned_at, assigned_by)
-            VALUES (?, ?, ?, ?, 1, NOW(), ?)");
+            VALUES (?, ?, ?, ?, 1, NOW(6), ?)");
         $stmt->execute([$courseId, $teacherId, $branchId, number_format((float)$rate, 2, '.', ''), (int)$actor['id']]);
         $id = (int)$db->lastInsertId();
         aec_commission_audit($db, $actor, 'teacher_commission.assigned', $id, ['course_id' => $courseId, 'teacher_user_id' => $teacherId, 'commission_percentage' => $rate]);
@@ -206,7 +207,7 @@ if ($action === 'unassign') {
     aec_csrf_check();
     $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$id || $id < 1) aec_fail('A valid assignment id is required.', 422);
-    $sql = 'UPDATE teacher_course_assignments SET is_active = 0, unassigned_at = NOW(), updated_at = NOW() WHERE id = ? AND is_active = 1';
+    $sql = 'UPDATE teacher_course_assignments SET is_active = 0, unassigned_at = NOW(6), updated_at = NOW() WHERE id = ? AND is_active = 1';
     $params = [$id];
     if ($actor['role'] === 'branch_manager') { $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id']; }
     $stmt = $db->prepare($sql); $stmt->execute($params);

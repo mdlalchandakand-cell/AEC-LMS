@@ -911,6 +911,11 @@ try {
     expect_status(api_request($base, '/api/teacher_commissions.php?action=unassign&id=' . $commissionAssignmentId, 'POST', [], $cookie, $csrf), 200, 'Admin ends teacher course assignment');
     $historicalCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin reads historical commission after unassignment');
     check((float)($historicalCommissionSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Unassigning a teacher erased commission earned while the assignment was active.');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=assign', 'POST', [
+        'course_id' => $courseIds[0], 'teacher_user_id' => $teacherId, 'commission_percentage' => 40,
+    ], $cookie, $csrf), 200, 'Admin reassigns the teacher with a new commission period');
+    $reassignedSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin verifies re-assignment preserves earlier earnings');
+    check((float)($reassignedSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Reassigning a teacher overwrote the previous commission period.');
     expect_status(api_request($base, '/api/teacher_commissions.php?action=assignments', 'GET', null, $branchManagerCookie), 403, 'Branch manager cannot use unscoped commission assignment management');
     $studentInboxAfterPayment = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives payment verification notification');
     check(count(array_filter($studentInboxAfterPayment['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Payment verified')) === 1, 'Payment verification did not notify the student.');

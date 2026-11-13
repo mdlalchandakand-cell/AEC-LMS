@@ -1,582 +1,262 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
-import { 
-  Calendar, Clock, Users, Plus, Trash2, BookOpen, MapPin, 
-  CheckCircle2, Printer, Filter, Search, Award, Sparkles, X 
-} from 'lucide-react';
-import { Batch, ClassRoutineSlot } from '../../types/lms';
+import { apiClient } from '../../services/apiClient';
+import { Calendar, Clock, Users, Plus, Trash2, BookOpen, MapPin, CheckCircle2, Printer, RefreshCw, AlertCircle, X } from 'lucide-react';
+
+type BatchRow = {
+  id: number; course_id: number; course_title: string; branch_id: number | null;
+  name: string; batch_code: string; schedule: string; room_number: string;
+  instructor_id: number; instructor_name: string; max_capacity: number;
+  enrolled_students_count: number; start_date: string; end_date: string; status: string;
+};
+type RoutineRow = {
+  id: number; batch_id: number; batch_name: string; course_title: string;
+  day_of_week: string; start_time: string; end_time: string; subject: string;
+  instructor_user_id: number; instructor_name: string; room_number: string;
+};
+type Instructor = { id: number; name: string; email: string; role: string };
+
+const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAYS_BN: Record<string, string> = { Sunday:'রবিবার', Monday:'সোমবার', Tuesday:'মঙ্গলবার', Wednesday:'বুধবার', Thursday:'বৃহস্পতিবার', Friday:'শুক্রবার', Saturday:'শনিবার' };
+const timeText = (value: unknown) => String(value || '').slice(0, 5);
 
 export const BatchRoutineManager: React.FC = () => {
-  const { 
-    batches, addBatch, deleteBatch, classRoutines, addRoutineSlot, 
-    deleteRoutineSlot, courses, users, language 
-  } = useLms();
+  const { courses, currentUser, language } = useLms();
   const isBn = language === 'bn';
+  const canManage = ['admin','super_admin','branch_manager'].includes(currentUser.role);
+  const [batches, setBatches] = useState<BatchRow[]>([]);
+  const [routines, setRoutines] = useState<RoutineRow[]>([]);
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [activeTab, setActiveTab] = useState<'batches'|'routine'|'print'>('batches');
+  const [selectedDay, setSelectedDay] = useState('All');
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [showRoutineModal, setShowRoutineModal] = useState(false);
+  const [showStudentsModal, setShowStudentsModal] = useState(false);
+  const [selectedBatchForStudents, setSelectedBatchForStudents] = useState<BatchRow | null>(null);
+  const [batchRoster, setBatchRoster] = useState<Array<Record<string, unknown>>>([]);
+  const [eligibleStudents, setEligibleStudents] = useState<Array<Record<string, unknown>>>([]);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [rosterLoading, setRosterLoading] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'batches' | 'routine' | 'print'>('batches');
-  const [selectedDayFilter, setSelectedDayFilter] = useState<string>('All');
-  const [showAddBatchModal, setShowAddBatchModal] = useState(false);
-  const [showAddRoutineModal, setShowAddRoutineModal] = useState(false);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
-
-  // New Batch Form State
   const [batchName, setBatchName] = useState('');
   const [batchCode, setBatchCode] = useState('');
-  const [batchCourseId, setBatchCourseId] = useState(courses[0]?.id || '');
-  const [batchSchedule, setBatchSchedule] = useState('Sun, Tue, Thu · 10:00 AM - 11:30 AM');
-  const [batchRoom, setBatchRoom] = useState('Room 201');
-  const [batchCapacity, setBatchCapacity] = useState(35);
-  const [batchStartDate, setBatchStartDate] = useState('2025-10-01');
-  const [batchEndDate, setBatchEndDate] = useState('2025-12-31');
+  const [batchCourseId, setBatchCourseId] = useState('');
+  const [batchSchedule, setBatchSchedule] = useState('');
+  const [batchRoom, setBatchRoom] = useState('');
+  const [batchInstructorId, setBatchInstructorId] = useState('');
+  const [batchCapacity, setBatchCapacity] = useState('35');
+  const [batchStartDate, setBatchStartDate] = useState('2026-11-15');
+  const [batchEndDate, setBatchEndDate] = useState('2027-03-01');
+  const [batchStatus, setBatchStatus] = useState<'upcoming'|'ongoing'|'completed'>('upcoming');
 
-  // New Routine Slot Form State
-  const [routineBatchId, setRoutineBatchId] = useState(batches[0]?.id || '');
-  const [routineDay, setRoutineDay] = useState<ClassRoutineSlot['dayOfWeek']>('Sunday');
-  const [routineStartTime, setRoutineStartTime] = useState('10:00 AM');
-  const [routineEndTime, setRoutineEndTime] = useState('11:30 AM');
+  const [routineBatchId, setRoutineBatchId] = useState('');
+  const [routineDay, setRoutineDay] = useState('Sunday');
+  const [routineStart, setRoutineStart] = useState('10:00');
+  const [routineEnd, setRoutineEnd] = useState('11:00');
   const [routineSubject, setRoutineSubject] = useState('');
-  const [routineTeacher, setRoutineTeacher] = useState('Tanvir Ahmed');
-  const [routineRoom, setRoutineRoom] = useState('Auditorium A-1');
+  const [routineInstructorId, setRoutineInstructorId] = useState('');
+  const [routineRoom, setRoutineRoom] = useState('');
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3000);
-  };
+  const refresh = useCallback(async () => {
+    setLoading(true); setError('');
+    const [batchResult, routineResult] = await Promise.all([
+      apiClient.batches.getAll(), apiClient.batches.getRoutines(),
+    ]);
+    if (batchResult.success && Array.isArray(batchResult.data)) {
+      const rows = batchResult.data as BatchRow[];
+      setBatches(rows);
+      setRoutineBatchId(previous => rows.some(row => String(row.id) === previous) ? previous : rows.length ? String(rows[0].id) : '');
+      if (!batchCourseId && courses.length) setBatchCourseId(String(courses[0].id));
+    } else setError(batchResult.error || 'Could not load batches.');
+    if (routineResult.success && Array.isArray(routineResult.data)) setRoutines(routineResult.data as RoutineRow[]);
+    else setError(routineResult.error || 'Could not load weekly routines.');
+    if (canManage) {
+      const instructorResult = await apiClient.batches.getInstructors();
+      if (instructorResult.success && Array.isArray(instructorResult.data)) setInstructors(instructorResult.data as Instructor[]);
+      else setError(instructorResult.error || 'Could not load instructors.');
+    }
+    setLoading(false);
+  }, [canManage, courses, batchCourseId]);
 
-  const handleCreateBatch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const course = courses.find(c => c.id === batchCourseId);
-    if (!batchName || !batchCode) return;
+  useEffect(() => { void refresh(); }, [refresh]);
 
-    addBatch({
-      courseId: batchCourseId,
-      courseTitle: course ? course.title : 'English Course',
-      name: batchName,
-      batchCode: batchCode.toUpperCase(),
-      schedule: batchSchedule,
-      roomNumber: batchRoom,
-      branchId: 'br_dhaka_main',
-      instructorId: 'usr_teacher_lead',
-      instructorName: 'Tanvir Ahmed (IELTS 8.5)',
-      maxCapacity: Number(batchCapacity),
-      startDate: batchStartDate,
-      endDate: batchEndDate,
-      status: 'ongoing'
+  const filteredRoutines = useMemo(() => selectedDay === 'All' ? routines : routines.filter(row => row.day_of_week === selectedDay), [routines, selectedDay]);
+  const selectedBatch = batches.find(row => String(row.id) === routineBatchId);
+
+  const createBatch = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError(''); setNotice('');
+    const result = await apiClient.batches.create({
+      course_id: Number(batchCourseId), name: batchName.trim(), batch_code: batchCode.trim().toUpperCase(),
+      schedule: batchSchedule.trim(), room_number: batchRoom.trim(), instructor_user_id: Number(batchInstructorId),
+      max_capacity: Number(batchCapacity), start_date: batchStartDate, end_date: batchEndDate, status: batchStatus,
     });
-
-    setShowAddBatchModal(false);
-    setBatchName('');
-    setBatchCode('');
-    showToast(isBn ? 'নতুন ব্যাচ সফলভাবে খোলা হয়েছে!' : 'New Batch Created Successfully!');
+    if (result.success) {
+      setShowBatchModal(false); setBatchName(''); setBatchCode(''); setBatchSchedule(''); setBatchRoom('');
+      setNotice(isBn ? 'নতুন ব্যাচ তৈরি হয়েছে।' : 'Batch created successfully.');
+      await refresh();
+    } else setError(result.error || 'Could not create batch.');
+    setSaving(false);
   };
 
-  const handleCreateRoutineSlot = (e: React.FormEvent) => {
-    e.preventDefault();
-    const batch = batches.find(b => b.id === routineBatchId);
-    if (!routineSubject) return;
-
-    const dayBnMap: Record<string, string> = {
-      Sunday: 'রবিবার', Monday: 'সোমবার', Tuesday: 'মঙ্গলবার',
-      Wednesday: 'বুধবার', Thursday: 'বৃহস্পতিবার', Friday: 'শুক্রবার', Saturday: 'শনিবার'
-    };
-
-    addRoutineSlot({
-      batchId: routineBatchId,
-      batchName: batch ? batch.name : 'Target Batch',
-      courseTitle: batch ? batch.courseTitle : 'English Program',
-      dayOfWeek: routineDay,
-      dayOfWeekBn: dayBnMap[routineDay] || routineDay,
-      startTime: routineStartTime,
-      endTime: routineEndTime,
-      subject: routineSubject,
-      instructorName: routineTeacher,
-      roomNumber: routineRoom,
-      branchName: 'Dhaka Main Campus'
+  const createRoutine = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setError(''); setNotice('');
+    const result = await apiClient.batches.createRoutine({
+      batch_id: Number(routineBatchId), day_of_week: routineDay, start_time: routineStart, end_time: routineEnd,
+      subject: routineSubject.trim(), instructor_user_id: routineInstructorId ? Number(routineInstructorId) : undefined,
+      room_number: routineRoom.trim(),
     });
-
-    setShowAddRoutineModal(false);
-    setRoutineSubject('');
-    showToast(isBn ? 'রুটিনে নতুন ক্লাস যুক্ত হয়েছে!' : 'Class Routine Slot Added Successfully!');
+    if (result.success) {
+      setShowRoutineModal(false); setRoutineSubject('');
+      setNotice(isBn ? 'সাপ্তাহিক রুটিনে ক্লাস যোগ হয়েছে।' : 'Weekly routine slot created.');
+      await refresh();
+    } else setError(result.error || 'Could not create routine. Check instructor/room conflicts.');
+    setSaving(false);
   };
 
-  const days: ClassRoutineSlot['dayOfWeek'][] = [
-    'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
-  ];
+  const openStudentManager = async (batch: BatchRow) => {
+    setSelectedBatchForStudents(batch); setShowStudentsModal(true); setRosterLoading(true); setError('');
+    const [rosterResult, eligibleResult] = await Promise.all([
+      apiClient.batches.getStudents(batch.id), apiClient.batches.getEligibleStudents(batch.id),
+    ]);
+    if (rosterResult.success && Array.isArray(rosterResult.data)) setBatchRoster(rosterResult.data);
+    else setError(rosterResult.error || 'Could not load the batch roster.');
+    if (eligibleResult.success && Array.isArray(eligibleResult.data)) setEligibleStudents(eligibleResult.data);
+    else setError(eligibleResult.error || 'Could not load eligible students.');
+    setRosterLoading(false);
+  };
 
-  const filteredRoutines = selectedDayFilter === 'All' 
-    ? classRoutines 
-    : classRoutines.filter(r => r.dayOfWeek === selectedDayFilter);
+  const addStudentToBatch = async () => {
+    if (!selectedBatchForStudents || !selectedStudentId) return;
+    setSaving(true); setError('');
+    const result = await apiClient.batches.enroll(selectedBatchForStudents.id, Number(selectedStudentId));
+    if (result.success) {
+      setSelectedStudentId('');
+      setNotice(isBn ? 'শিক্ষার্থী ব্যাচে যুক্ত হয়েছে।' : 'Student added to batch.');
+      await openStudentManager(selectedBatchForStudents); await refresh();
+    } else setError(result.error || 'Could not add student to batch.');
+    setSaving(false);
+  };
+
+  const removeStudentFromBatch = async (studentUserId: number) => {
+    if (!selectedBatchForStudents || !window.confirm(isBn ? 'শিক্ষার্থীকে ব্যাচ থেকে সরাবেন?' : 'Remove this student from the batch?')) return;
+    setSaving(true); setError('');
+    const result = await apiClient.batches.unenroll(selectedBatchForStudents.id, studentUserId);
+    if (result.success) {
+      setNotice(isBn ? 'শিক্ষার্থীকে ব্যাচ থেকে সরানো হয়েছে।' : 'Student removed from batch.');
+      await openStudentManager(selectedBatchForStudents); await refresh();
+    } else setError(result.error || 'Could not remove student.');
+    setSaving(false);
+  };
+
+  const deleteBatch = async (id: number) => {
+    if (!window.confirm(isBn ? 'ব্যাচটি রিসাইকেল বিনে পাঠাবেন?' : 'Move this batch to the recycle bin?')) return;
+    const result = await apiClient.batches.delete(id);
+    if (result.success) { setNotice(isBn ? 'ব্যাচটি রিসাইকেল বিনে পাঠানো হয়েছে।' : 'Batch moved to recycle bin.'); await refresh(); }
+    else setError(result.error || 'Could not delete batch.');
+  };
+
+  const deleteRoutine = async (id: number) => {
+    if (!window.confirm(isBn ? 'এই রুটিন স্লট মুছে ফেলবেন?' : 'Remove this routine slot?')) return;
+    const result = await apiClient.batches.deleteRoutine(id);
+    if (result.success) { setNotice(isBn ? 'রুটিন স্লট মুছে ফেলা হয়েছে।' : 'Routine slot removed.'); await refresh(); }
+    else setError(result.error || 'Could not remove routine.');
+  };
 
   return (
     <div className="space-y-6">
-      {/* Toast Alert */}
-      {toastMsg && (
-        <div className="fixed top-5 right-5 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-bold animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{toastMsg}</span>
-        </div>
-      )}
-
-      {/* Top Banner */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold uppercase tracking-wider">
-              Academic Operations
-            </span>
-            <span className="text-xs text-slate-400">·</span>
-            <span className="text-xs font-semibold text-slate-600">
-              {isBn ? 'ব্যাচ ও সাপ্তাহিক ক্লাস রুটিন টাইমটেবিল' : 'Batch & Weekly Class Timetable Engine'}
-            </span>
-          </div>
-          <h2 className="text-lg font-bold text-slate-900 leading-tight mt-1">
-            {isBn ? 'ব্যাচ ব্যবস্থাপনা ও ক্লাস শিডিউলার' : 'Batch Governance & Timetable Scheduler'}
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isBn 
-              ? 'আইইএলটিএস, স্পোকেন ও গ্রামার কোর্সের মর্নিং, ইভনিং ও উইকেন্ড ব্যাচ এবং সাপ্তাহিক রুটিন নিয়ন্ত্রণ করুন' 
-              : 'Organize academic cohorts, morning/evening slots, room allocations, and weekly master class timetables'}
-          </p>
+          <div className="flex items-center gap-2 text-blue-700 text-[10px] font-bold uppercase tracking-wider"><Calendar className="w-4 h-4" />{isBn ? 'একাডেমিক অপারেশন' : 'Academic Operations'}</div>
+          <h2 className="text-xl font-extrabold text-slate-900 mt-1">{isBn ? 'ব্যাচ ও ক্লাস রুটিন ব্যবস্থাপনা' : 'Batch & Class Routine Management'}</h2>
+          <p className="text-xs text-slate-500 mt-1">{isBn ? 'ডাটাবেজে সংরক্ষিত ব্যাচ, শিক্ষার্থী তালিকা এবং সংঘর্ষ-পরীক্ষিত সাপ্তাহিক রুটিন।' : 'Persistent batches, student placement, and weekly schedules with instructor/room conflict checks.'}</p>
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => setShowAddBatchModal(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{isBn ? 'নতুন ব্যাচ তৈরি' : 'Create New Batch'}</span>
-          </button>
-          <button
-            onClick={() => setShowAddRoutineModal(true)}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{isBn ? 'রুটিনে স্লট যোগ' : 'Add Routine Slot'}</span>
-          </button>
+        <div className="flex gap-2">
+          {canManage && <><button onClick={() => setShowBatchModal(true)} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold flex items-center gap-1"><Plus className="w-4 h-4" />{isBn ? 'নতুন ব্যাচ' : 'New batch'}</button><button onClick={() => setShowRoutineModal(true)} disabled={!batches.length} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold flex items-center gap-1 disabled:opacity-50"><Plus className="w-4 h-4" />{isBn ? 'রুটিন যোগ' : 'Add routine'}</button></>}
+          <button onClick={() => void refresh()} className="p-2 rounded-xl border border-slate-200 text-slate-600" aria-label="Refresh"><RefreshCw className="w-4 h-4" /></button>
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab('batches')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-            activeTab === 'batches'
-              ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>{isBn ? `সক্রিয় ব্যাচসমূহ (${batches.length})` : `Active Cohort Batches (${batches.length})`}</span>
-        </button>
+      {error && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex gap-2"><AlertCircle className="w-4 h-4 shrink-0" />{error}</div>}
+      {notice && <div role="status" className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">{notice}</div>}
 
-        <button
-          onClick={() => setActiveTab('routine')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-            activeTab === 'routine'
-              ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <Calendar className="w-4 h-4" />
-          <span>{isBn ? `সাপ্তাহিক রুটিন গ্রিড (${classRoutines.length})` : `Weekly Routine Grid (${classRoutines.length})`}</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('print')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
-            activeTab === 'print'
-              ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <Printer className="w-4 h-4" />
-          <span>{isBn ? 'প্রিন্টেবল রুটিন শিট' : 'Printable Timetable Sheet'}</span>
-        </button>
+      <div className="flex gap-2 border-b border-slate-200 pb-2 text-xs">
+        <button onClick={() => setActiveTab('batches')} className={`px-3 py-2 rounded-lg font-bold ${activeTab === 'batches' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{isBn ? 'ব্যাচ' : 'Batches'} ({batches.length})</button>
+        <button onClick={() => setActiveTab('routine')} className={`px-3 py-2 rounded-lg font-bold ${activeTab === 'routine' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{isBn ? 'সাপ্তাহিক রুটিন' : 'Weekly routine'} ({routines.length})</button>
+        <button onClick={() => setActiveTab('print')} className={`px-3 py-2 rounded-lg font-bold ${activeTab === 'print' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Printer className="w-3.5 h-3.5 inline mr-1" />{isBn ? 'প্রিন্ট' : 'Print'}</button>
       </div>
 
-      {/* ================= TAB 1: BATCHES ================= */}
-      {activeTab === 'batches' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {loading ? <div className="bg-white border border-slate-200 rounded-xl p-6 text-xs text-slate-500">{isBn ? 'লোড হচ্ছে…' : 'Loading…'}</div> : activeTab === 'batches' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {batches.map(batch => {
-            const fillPercentage = Math.round((batch.enrolledStudentsCount / batch.maxCapacity) * 100);
-            return (
-              <div key={batch.id} className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs space-y-4 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-mono text-[10px] font-bold">
-                      {batch.batchCode}
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase">
-                      {batch.status}
-                    </span>
-                  </div>
-
-                  <h3 className="text-sm font-bold text-slate-900 mt-2.5 leading-snug">
-                    {batch.name}
-                  </h3>
-                  <div className="text-[11px] text-blue-600 font-medium">{batch.courseTitle}</div>
-
-                  <div className="pt-3 border-t border-slate-100 mt-3 space-y-2 text-xs text-slate-600">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>{batch.schedule}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>{batch.roomNumber} · Dhaka Campus</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <BookOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span>Faculty: <strong className="text-slate-800">{batch.instructorName}</strong></span>
-                    </div>
-                  </div>
-
-                  {/* Enrollment Capacity Bar */}
-                  <div className="pt-3 space-y-1">
-                    <div className="flex justify-between text-[11px] text-slate-600">
-                      <span>Seat Capacity</span>
-                      <span className="font-bold">{batch.enrolledStudentsCount} / {batch.maxCapacity} ({fillPercentage}%)</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full ${fillPercentage > 90 ? 'bg-amber-500' : 'bg-blue-600'}`}
-                        style={{ width: `${Math.min(fillPercentage, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                  <span className="text-[10px] text-slate-400">{batch.startDate} to {batch.endDate}</span>
-                  <button
-                    onClick={() => { deleteBatch(batch.id); showToast('Batch deleted'); }}
-                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                    title="Delete Cohort"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            );
+            const fill = Math.min(100, Math.round((Number(batch.enrolled_students_count) / Math.max(1, Number(batch.max_capacity))) * 100));
+            return <div key={batch.id} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+              <div className="flex items-center justify-between"><span className="px-2 py-1 rounded bg-blue-50 text-blue-700 font-mono text-[10px] font-bold">{batch.batch_code}</span><span className="text-[10px] rounded-full bg-slate-100 px-2 py-1 capitalize">{batch.status}</span></div>
+              <div><h3 className="font-bold text-slate-900">{batch.name}</h3><p className="text-xs text-blue-700">{batch.course_title}</p></div>
+              <div className="space-y-2 text-xs text-slate-600"><div className="flex gap-2"><Clock className="w-4 h-4" />{batch.schedule || '—'}</div><div className="flex gap-2"><MapPin className="w-4 h-4" />{batch.room_number || '—'}</div><div className="flex gap-2"><Users className="w-4 h-4" />{batch.instructor_name}</div></div>
+              <div><div className="flex justify-between text-[10px] text-slate-500"><span>{isBn ? 'শিক্ষার্থী' : 'Students'}</span><strong>{batch.enrolled_students_count}/{batch.max_capacity}</strong></div><div className="h-2 rounded-full bg-slate-100 overflow-hidden mt-1"><div className="h-full bg-blue-600" style={{ width: `${fill}%` }} /></div></div>
+              <div className="flex justify-between items-center border-t border-slate-100 pt-3 text-[10px] text-slate-500"><span>{batch.start_date} — {batch.end_date}</span>{canManage && <div className="flex items-center gap-3"><button onClick={() => void openStudentManager(batch)} className="text-blue-600 hover:underline flex items-center gap-1"><Users className="w-3.5 h-3.5" />{isBn ? 'শিক্ষার্থী' : 'Students'}</button><button onClick={() => void deleteBatch(batch.id)} className="text-rose-600 hover:underline flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" />{isBn ? 'মুছুন' : 'Delete'}</button></div>}</div>
+            </div>;
           })}
+          {batches.length === 0 && <div className="col-span-full bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-xs text-slate-500">{isBn ? 'এখনো কোনো ব্যাচ তৈরি হয়নি।' : 'No batches available.'}</div>}
         </div>
-      )}
-
-      {/* ================= TAB 2: INTERACTIVE ROUTINE GRID ================= */}
-      {activeTab === 'routine' && (
+      ) : activeTab === 'routine' ? (
         <div className="space-y-4">
-          {/* Day Filter Bar */}
-          <div className="flex items-center gap-2 bg-white p-3 rounded-2xl border border-slate-200/90 shadow-2xs overflow-x-auto">
-            <span className="text-xs font-bold text-slate-500 pl-2 shrink-0">Filter Day:</span>
-            {['All', ...days].map(day => (
-              <button
-                key={day}
-                onClick={() => setSelectedDayFilter(day)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold shrink-0 cursor-pointer transition-all ${
-                  selectedDayFilter === day
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {day}
-              </button>
-            ))}
+          <div className="flex gap-2 bg-white border border-slate-200 p-3 rounded-xl overflow-x-auto"><button onClick={() => setSelectedDay('All')} className={`px-3 py-1.5 rounded-lg text-xs ${selectedDay === 'All' ? 'bg-blue-600 text-white' : 'hover:bg-slate-100'}`}>All</button>{DAYS.map(day => <button key={day} onClick={() => setSelectedDay(day)} className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap ${selectedDay === day ? 'bg-blue-600 text-white' : 'hover:bg-slate-100'}`}>{day}</button>)}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredRoutines.map(slot => <div key={slot.id} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3"><div className="flex justify-between"><span className="text-[10px] font-bold bg-blue-50 text-blue-700 px-2 py-1 rounded">{slot.day_of_week} · {DAYS_BN[slot.day_of_week] || ''}</span><span className="font-mono text-xs">{timeText(slot.start_time)}–{timeText(slot.end_time)}</span></div><div><h3 className="font-bold text-sm">{slot.subject}</h3><p className="text-xs text-blue-700">{slot.batch_name} · {slot.course_title}</p></div><div className="text-xs text-slate-600">Faculty: <strong>{slot.instructor_name}</strong></div><div className="flex justify-between items-center border-t border-slate-100 pt-2 text-xs text-slate-500"><span>{slot.room_number || '—'}</span>{canManage && <button onClick={() => void deleteRoutine(slot.id)} className="text-rose-600 hover:underline"><Trash2 className="w-3.5 h-3.5" /></button>}</div></div>)}
+            {filteredRoutines.length === 0 && <div className="col-span-full bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-xs text-slate-500">No routine slots for this filter.</div>}
           </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4 max-w-5xl mx-auto">
+          <div className="text-center border-b border-slate-200 pb-4"><h2 className="text-xl font-black text-slate-900">ALOM'S ENGLISH CENTER</h2><p className="text-xs text-blue-700 font-bold mt-1">Official Master Weekly Class Timetable</p></div>
+          <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Day</th><th className="p-3">Time</th><th className="p-3">Batch / Course</th><th className="p-3">Subject</th><th className="p-3">Instructor</th><th className="p-3">Room</th></tr></thead><tbody className="divide-y">{routines.map(row => <tr key={row.id}><td className="p-3">{row.day_of_week}</td><td className="p-3">{timeText(row.start_time)}–{timeText(row.end_time)}</td><td className="p-3">{row.batch_name} / {row.course_title}</td><td className="p-3">{row.subject}</td><td className="p-3">{row.instructor_name}</td><td className="p-3">{row.room_number}</td></tr>)}</tbody></table></div>
+          <div className="flex justify-end"><button onClick={() => window.print()} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-2"><Printer className="w-4 h-4" />Print routine</button></div>
+        </div>
+      )}
 
-          {/* Timetable Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredRoutines.map(slot => (
-              <div key={slot.id} className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-2xs space-y-3 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 text-[10px] font-bold uppercase">
-                      {slot.dayOfWeek} ({slot.dayOfWeekBn})
-                    </span>
-                    <span className="text-xs font-bold text-slate-900 font-mono">
-                      {slot.startTime} - {slot.endTime}
-                    </span>
-                  </div>
+      {showBatchModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"><form onSubmit={createBatch} className="bg-white rounded-2xl p-6 w-full max-w-xl space-y-3 max-h-[90vh] overflow-y-auto">
+          <div className="flex justify-between items-center"><h3 className="font-bold">{isBn ? 'নতুন ব্যাচ তৈরি' : 'Create academic batch'}</h3><button type="button" onClick={() => setShowBatchModal(false)} aria-label="Close"><X className="w-4 h-4" /></button></div>
+          <select required value={batchCourseId} onChange={e => setBatchCourseId(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm"><option value="">Select course</option>{courses.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}</select>
+          <input required value={batchName} onChange={e => setBatchName(e.target.value)} placeholder="Batch name" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <input required value={batchCode} onChange={e => setBatchCode(e.target.value)} placeholder="Batch code (e.g. AEC-SSC-27)" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <select required value={batchInstructorId} onChange={e => setBatchInstructorId(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm"><option value="">Select instructor</option>{instructors.map(user => <option key={user.id} value={user.id}>{user.name} ({user.email})</option>)}</select>
+          <input value={batchSchedule} onChange={e => setBatchSchedule(e.target.value)} placeholder="Schedule label (optional)" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <input value={batchRoom} onChange={e => setBatchRoom(e.target.value)} placeholder="Room / online" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <div className="grid grid-cols-2 gap-3"><label className="text-xs">Capacity<input required type="number" min="1" max="1000" value={batchCapacity} onChange={e => setBatchCapacity(e.target.value)} className="w-full border rounded-lg px-3 py-2 mt-1" /></label><label className="text-xs">Status<select value={batchStatus} onChange={e => setBatchStatus(e.target.value as typeof batchStatus)} className="w-full border rounded-lg px-3 py-2 mt-1"><option value="upcoming">Upcoming</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option></select></label></div>
+          <div className="grid grid-cols-2 gap-3"><label className="text-xs">Start date<input required type="date" value={batchStartDate} onChange={e => setBatchStartDate(e.target.value)} className="w-full border rounded-lg px-3 py-2 mt-1" /></label><label className="text-xs">End date<input required type="date" value={batchEndDate} onChange={e => setBatchEndDate(e.target.value)} className="w-full border rounded-lg px-3 py-2 mt-1" /></label></div>
+          <button disabled={saving} className="w-full rounded-lg bg-blue-600 text-white py-2.5 text-sm font-bold">{saving ? 'Saving…' : 'Create batch'}</button>
+        </form></div>
+      )}
 
-                  <h4 className="font-extrabold text-xs text-slate-900 mt-2 leading-tight">
-                    {slot.subject}
-                  </h4>
-                  <div className="text-[11px] text-blue-600 font-medium mt-0.5">
-                    {slot.batchName}
-                  </div>
-
-                  <div className="pt-2.5 mt-2.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                    <div>Faculty: <strong className="text-slate-800">{slot.instructorName}</strong></div>
-                    <div className="font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{slot.roomNumber}</div>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-100 flex justify-end">
-                  <button
-                    onClick={() => { deleteRoutineSlot(slot.id); showToast('Routine slot removed'); }}
-                    className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
+      {showStudentsModal && selectedBatchForStudents && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center"><div><h3 className="font-bold">{isBn ? 'ব্যাচের শিক্ষার্থী' : 'Batch students'} · {selectedBatchForStudents.name}</h3><p className="text-xs text-slate-500">{isBn ? 'শুধু কোর্সে সক্রিয় ভর্তি থাকা শিক্ষার্থী যুক্ত করা যাবে।' : 'Only students with an active course enrollment can be added.'}</p></div><button onClick={() => setShowStudentsModal(false)} aria-label="Close"><X className="w-4 h-4" /></button></div>
+            {rosterLoading ? <p className="text-xs text-slate-500">Loading roster…</p> : <>
+              <div className="flex flex-col sm:flex-row gap-2"><select value={selectedStudentId} onChange={e => setSelectedStudentId(e.target.value)} className="flex-1 border rounded-lg px-3 py-2 text-sm"><option value="">Select eligible student</option>{eligibleStudents.map(student => <option key={String(student.id)} value={String(student.id)}>{String(student.name)} · {String(student.email)}</option>)}</select><button disabled={!selectedStudentId || saving} onClick={() => void addStudentToBatch()} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold disabled:opacity-50">{isBn ? 'ব্যাচে যুক্ত করুন' : 'Add to batch'}</button></div>
+              <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">{batchRoster.filter(row => row.status === 'active').map(row => <div key={String(row.id)} className="p-3 flex items-center justify-between gap-3"><div><div className="font-semibold text-sm">{String(row.name)}</div><div className="text-xs text-slate-500">{String(row.email)}</div></div><button disabled={saving} onClick={() => void removeStudentFromBatch(Number(row.user_id))} className="text-rose-600 text-xs hover:underline">{isBn ? 'সরান' : 'Remove'}</button></div>)}{batchRoster.filter(row => row.status === 'active').length === 0 && <p className="p-5 text-center text-xs text-slate-500">No active students in this batch.</p>}</div>
+            </>}
           </div>
         </div>
       )}
 
-      {/* ================= TAB 3: PRINTABLE TIMETABLE ================= */}
-      {activeTab === 'print' && (
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-8 max-w-4xl mx-auto space-y-6">
-          <div className="text-center pb-4 border-b border-slate-200">
-            <h2 className="text-xl font-black text-slate-900">ALOM'S ENGLISH CENTER</h2>
-            <div className="text-xs font-bold text-blue-600 uppercase tracking-widest mt-0.5">
-              Official Master Weekly Class Timetable
-            </div>
-            <p className="text-[11px] text-slate-500 mt-1">Mirpur 10 & Chittagong Main Campuses · Academic Session 2025-2026</p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border border-slate-200">
-              <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
-                <tr>
-                  <th className="p-3 border-r border-slate-200">Day</th>
-                  <th className="p-3 border-r border-slate-200">Time Slot</th>
-                  <th className="p-3 border-r border-slate-200">Batch & Course</th>
-                  <th className="p-3 border-r border-slate-200">Subject / Module</th>
-                  <th className="p-3 border-r border-slate-200">Instructor</th>
-                  <th className="p-3">Room</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {classRoutines.map(r => (
-                  <tr key={r.id}>
-                    <td className="p-3 font-bold border-r border-slate-200 bg-slate-50/50">{r.dayOfWeek}</td>
-                    <td className="p-3 font-mono border-r border-slate-200">{r.startTime} - {r.endTime}</td>
-                    <td className="p-3 border-r border-slate-200">{r.batchName}</td>
-                    <td className="p-3 font-semibold border-r border-slate-200">{r.subject}</td>
-                    <td className="p-3 border-r border-slate-200">{r.instructorName}</td>
-                    <td className="p-3 font-mono">{r.roomNumber}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="pt-4 flex items-center justify-between border-t border-slate-200 text-xs">
-            <span className="text-slate-500">Issued by Office of the Academic Registrar</span>
-            <button
-              onClick={() => window.print()}
-              className="px-4 py-2 bg-blue-600 text-white font-bold rounded-xl flex items-center gap-1.5 cursor-pointer"
-            >
-              <Printer className="w-4 h-4" />
-              <span>Print Official Routine</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Create Batch */}
-      {showAddBatchModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-sm text-slate-900">Create New Academic Batch</h3>
-              <button onClick={() => setShowAddBatchModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateBatch} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Batch Title *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. IELTS 8.0 Executive Weekend Batch"
-                  value={batchName}
-                  onChange={e => setBatchName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-hidden"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Batch Code *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="AEC-IELTS-W25"
-                    value={batchCode}
-                    onChange={e => setBatchCode(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono uppercase"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Capacity</label>
-                  <input
-                    type="number"
-                    value={batchCapacity}
-                    onChange={e => setBatchCapacity(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Associated Course</label>
-                <select
-                  value={batchCourseId}
-                  onChange={e => setBatchCourseId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                >
-                  {courses.map(c => (
-                    <option key={c.id} value={c.id}>{c.title}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Weekly Schedule Timing</label>
-                <input
-                  type="text"
-                  value={batchSchedule}
-                  onChange={e => setBatchSchedule(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddBatchModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-xl font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white font-bold rounded-xl"
-                >
-                  Create Batch
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Add Routine Slot */}
-      {showAddRoutineModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4 animate-in fade-in">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-extrabold text-sm text-slate-900">Add Slot to Class Routine</h3>
-              <button onClick={() => setShowAddRoutineModal(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateRoutineSlot} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Batch</label>
-                <select
-                  value={routineBatchId}
-                  onChange={e => setRoutineBatchId(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                >
-                  {batches.map(b => (
-                    <option key={b.id} value={b.id}>{b.name} ({b.batchCode})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Day of Week</label>
-                  <select
-                    value={routineDay}
-                    onChange={e => setRoutineDay(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  >
-                    {days.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Room</label>
-                  <input
-                    type="text"
-                    value={routineRoom}
-                    onChange={e => setRoutineRoom(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Start Time</label>
-                  <input
-                    type="text"
-                    value={routineStartTime}
-                    onChange={e => setRoutineStartTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">End Time</label>
-                  <input
-                    type="text"
-                    value={routineEndTime}
-                    onChange={e => setRoutineEndTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Subject / Topic *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. IELTS Reading: Heading Matching Strategy"
-                  value={routineSubject}
-                  onChange={e => setRoutineSubject(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">Instructor Faculty</label>
-                <input
-                  type="text"
-                  value={routineTeacher}
-                  onChange={e => setRoutineTeacher(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowAddRoutineModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-xl font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white font-bold rounded-xl"
-                >
-                  Save to Routine
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showRoutineModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"><form onSubmit={createRoutine} className="bg-white rounded-2xl p-6 w-full max-w-lg space-y-3">
+          <div className="flex justify-between items-center"><h3 className="font-bold">{isBn ? 'সাপ্তাহিক রুটিনে ক্লাস যোগ' : 'Add weekly routine slot'}</h3><button type="button" onClick={() => setShowRoutineModal(false)} aria-label="Close"><X className="w-4 h-4" /></button></div>
+          <select required value={routineBatchId} onChange={e => { setRoutineBatchId(e.target.value); const b = batches.find(row => String(row.id) === e.target.value); setRoutineInstructorId(b ? String(b.instructor_id) : ''); setRoutineRoom(b?.room_number || ''); }} className="w-full border rounded-lg px-3 py-2 text-sm"><option value="">Select batch</option>{batches.map(batch => <option key={batch.id} value={batch.id}>{batch.name}</option>)}</select>
+          <select value={routineDay} onChange={e => setRoutineDay(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm">{DAYS.map(day => <option key={day} value={day}>{day}</option>)}</select>
+          <div className="grid grid-cols-2 gap-3"><label className="text-xs">Start time<input required type="time" value={routineStart} onChange={e => setRoutineStart(e.target.value)} className="w-full border rounded-lg px-3 py-2 mt-1" /></label><label className="text-xs">End time<input required type="time" value={routineEnd} onChange={e => setRoutineEnd(e.target.value)} className="w-full border rounded-lg px-3 py-2 mt-1" /></label></div>
+          <input required value={routineSubject} onChange={e => setRoutineSubject(e.target.value)} placeholder="Subject / module" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <select value={routineInstructorId} onChange={e => setRoutineInstructorId(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm"><option value="">Use batch instructor</option>{instructors.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}</select>
+          <input value={routineRoom} onChange={e => setRoutineRoom(e.target.value)} placeholder="Room / online" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <button disabled={saving || !selectedBatch} className="w-full rounded-lg bg-slate-900 text-white py-2.5 text-sm font-bold">{saving ? 'Saving…' : 'Add routine slot'}</button>
+        </form></div>
       )}
     </div>
   );

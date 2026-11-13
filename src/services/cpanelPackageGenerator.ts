@@ -1503,13 +1503,15 @@ Enterprise Learning Management System specifically designed for Alom's English C
   ];
 };
 
+/**
+ * Release guard: the legacy package templates below describe an older,
+ * destructive schema and a different PHP application. They must not be
+ * distributed as the current AEC-LMS release. The production exporter will
+ * be re-enabled only when it packages the checked-in API and additive
+ * migrations and passes a clean cPanel installation rehearsal.
+ */
 export const generateCPanelZipBlob = async (): Promise<Blob> => {
-  const zip = new JSZip();
-  const files = getCPanelPackageFiles();
-
-  files.forEach(file => {
-    zip.file(file.path, file.content);
-  });
-
-  return await zip.generateAsync({ type: 'blob' });
+  throw new Error(
+    'Package generation is disabled: the legacy template is not the current AEC-LMS application and has not passed production deployment validation.'
+  );
 };

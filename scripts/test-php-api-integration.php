@@ -540,6 +540,8 @@ try {
     check(!in_array($expiredRecycleId, array_map(static fn(array $row): int => (int)$row['id'], $afterExpiryPurge['data'] ?? []), true), 'Expired testimonial remained active in recycle bin.');
     $expiredStatus = $db->prepare('SELECT status FROM recycle_bin_items WHERE id = ?'); $expiredStatus->execute([$expiredRecycleId]);
     check($expiredStatus->fetchColumn() === 'purged', 'Expired recycle-bin item was not marked purged.');
+    $emptyRecycleResult = expect_status(api_request($base, '/api/recycle_bin.php?action=empty', 'POST', [], $cookie, $csrf), 200, 'Admin empties only eligible recycle-bin items');
+    check((int)($emptyRecycleResult['data']['purged'] ?? -1) === 0, 'Empty recycle bin unexpectedly deleted records that had already been restored or purged.');
     expect_status(api_request($base, '/api/courses.php?action=create', 'POST', ['title' => 'No CSRF', 'slug' => 'no-csrf'], $cookie), 419, 'Missing CSRF token is rejected');
 
     $otherBranch = expect_status(api_request($base, '/api/branches.php?action=create', 'POST', [
@@ -1046,6 +1048,9 @@ try {
     expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $draftCourseId, 'POST', [], $cookie, $csrf), 200, 'Admin archives a course through the API');
     $courseRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Admin lists persistent recycle-bin items after course deletion');
     check(count(array_filter($courseRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === $draftCourseId)) === 1, 'Soft-deleted course was not registered in the persistent recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $notificationStudentCookie), 403, 'Student cannot access administrator recycle bin');
+    $branchRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager can view assigned-branch recycle-bin items');
+    check(count(array_filter($branchRecycleItems['data'] ?? [], static fn(array $row): bool => $row['branch_id'] !== null && (int)$row['branch_id'] !== $branchId)) === 0, 'Branch manager recycle bin leaked another branch records.');
     $courseRecycleItem = array_values(array_filter($courseRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === $draftCourseId))[0];
     expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . (int)$courseRecycleItem['id'], 'POST', [], $cookie, $csrf), 409, 'Course with enrollment/payment history cannot be permanently deleted');
     $afterArchive = expect_status(api_request($base, '/api/courses.php?action=list', 'GET', null, $cookie), 200, 'Admin course list after archival');

@@ -259,6 +259,33 @@ class ApiService {
   };
 
 
+  // Consent-based guardian/student relationships and read-only progress summaries.
+  public guardians = {
+    getMyStudents: () => this.request<Array<Record<string, unknown>>>('/guardians.php?action=my_students'),
+    requestLink: (studentEmail: string, relationship = 'Guardian') =>
+      this.request<{ id: number; status: 'pending' }>('/guardians.php?action=request', {
+        method: 'POST', body: JSON.stringify({ student_email: studentEmail, relationship }),
+      }),
+    getIncoming: () => this.request<Array<Record<string, unknown>>>('/guardians.php?action=incoming'),
+    respond: (id: number, decision: 'accept' | 'reject') =>
+      this.request<{ id: number; status: string }>(`/guardians.php?action=respond&id=${encodeURIComponent(String(id))}`, {
+        method: 'POST', body: JSON.stringify({ decision }),
+      }),
+    revoke: (id: number) =>
+      this.request<{ id: number; status: 'revoked' }>(`/guardians.php?action=revoke&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    getSummary: (studentId: number) =>
+      this.request<{
+        student: Record<string, unknown>;
+        courses: Array<Record<string, unknown>>;
+        attendance: Array<Record<string, unknown>>;
+        exams: Array<Record<string, unknown>>;
+        payments: Array<Record<string, unknown>>;
+        certificates: Array<Record<string, unknown>>;
+      }>(`/guardians.php?action=summary&student_id=${encodeURIComponent(String(studentId))}`),
+    getAll: (status = '') =>
+      this.request<Array<Record<string, unknown>>>(`/guardians.php?action=list${status ? `&status=${encodeURIComponent(status)}` : ''}`),
+  };
+
   public branches = {
     getAll: () => this.request<Array<Record<string, unknown>>>('/branches.php?action=list'),
     create: (data: { code: string; name: string; city?: string; address?: string; phone?: string }) =>

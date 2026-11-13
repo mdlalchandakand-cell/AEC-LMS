@@ -97,6 +97,7 @@ if ($action === 'summary') {
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
           WHERE p.course_id = c.id AND p.status IN ('verified','refunded')
+            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at <= a.unassigned_at)
             AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)) AS total_course_revenue,
         ROUND((SELECT COALESCE(SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)), 0)
           FROM course_payments p
@@ -105,6 +106,7 @@ if ($action === 'summary') {
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
           WHERE p.course_id = c.id AND p.status IN ('verified','refunded')
+            AND p.reviewed_at >= a.assigned_at AND (a.unassigned_at IS NULL OR p.reviewed_at <= a.unassigned_at)
             AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)) * a.commission_percentage / 100, 2) AS gross_commission
         FROM teacher_course_assignments a
         JOIN users t ON t.id = a.teacher_user_id

@@ -191,7 +191,7 @@ export const RecycleBinManager: React.FC = () => {
               ) : filteredItems.length === 0 ? (
                 <tr><td colSpan={6} className="p-8 text-center text-slate-500">{isBn ? 'কোনো আইটেম পাওয়া যায়নি।' : 'No recycle-bin items found.'}</td></tr>
               ) : filteredItems.map(item => {
-                const expired = canPurge(item);
+                const expired = canPurgeItem(item);
                 return (
                   <tr key={item.id} className="align-top">
                     <td className="p-3">

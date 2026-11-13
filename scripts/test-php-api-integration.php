@@ -961,6 +961,11 @@ try {
     expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin restores a batch');
     $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
     check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin deletes batch again for central restore test');
+    $batchRecycleAgain = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists second batch deletion');
+    $batchRecycleAgainItem = array_values(array_filter($batchRecycleAgain['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId))[0] ?? null;
+    check(is_array($batchRecycleAgainItem), 'Second batch deletion did not create a recycle-bin item.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$batchRecycleAgainItem['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores batch through central recycle-bin API');
     $batchUpdateBase = [
         'course_id' => $courseIds[0], 'name' => 'API Integration Batch ' . $suffix,
         'batch_code' => 'TST-' . strtoupper($suffix), 'schedule' => 'Sun 10:00-11:00',

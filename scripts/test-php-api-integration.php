@@ -1143,18 +1143,23 @@ try {
     expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $cookie, $csrf), 409, 'Student cannot exceed the maximum number of exam attempts');
     $studentAttempts = expect_status(api_request($base, '/api/exams.php?action=attempts&exam_id=' . $examId, 'GET', null, $cookie), 200, 'Student can view own exam attempt history');
     check(count($studentAttempts['data'] ?? []) === 1 && (int)$studentAttempts['data'][0]['id'] === $attemptId, 'Student attempt history did not return the submitted attempt.');
-    expect_status(api_request($base, '/api/exams.php?action=delete&id=' . $examId, 'POST', [], $cookie, $csrf), 409, 'Exam with student attempts cannot be archived or permanently removed');
+    $examAdminCookie = null;
+    $examAdminLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', [
+        'email' => $adminEmail, 'password' => $adminPassword,
+    ], $examAdminCookie), 200, 'Admin re-login to manage exam recycle-bin records');
+    $examAdminCsrf = $examAdminLogin['data']['csrf_token'] ?? null;
+    expect_status(api_request($base, '/api/exams.php?action=delete&id=' . $examId, 'POST', [], $examAdminCookie, $examAdminCsrf), 409, 'Exam with student attempts cannot be archived or permanently removed');
     $recycleExam = expect_status(api_request($base, '/api/exams.php?action=create', 'POST', [
         'course_id' => $courseIds[0], 'title' => 'Recycle Bin Draft Exam', 'duration_minutes' => 10,
         'pass_marks' => 0, 'negative_mark_per_wrong' => 0, 'max_attempts' => 1, 'status' => 'draft',
-    ], $cookie, $csrf), 201, 'Admin creates an exam for recycle-bin restore test');
+    ], $examAdminCookie, $examAdminCsrf), 201, 'Admin creates an exam for recycle-bin restore test');
     $recycleExamId = (int)$recycleExam['data']['id'];
-    expect_status(api_request($base, '/api/exams.php?action=delete&id=' . $recycleExamId, 'POST', [], $cookie, $csrf), 200, 'Admin archives an exam into recycle bin');
-    $examRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists archived exams');
+    expect_status(api_request($base, '/api/exams.php?action=delete&id=' . $recycleExamId, 'POST', [], $examAdminCookie, $examAdminCsrf), 200, 'Admin archives an exam into recycle bin');
+    $examRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $examAdminCookie), 200, 'Recycle bin lists archived exams');
     $examRecycleItem = array_values(array_filter($examRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'exam' && (int)$row['entity_id'] === $recycleExamId))[0] ?? null;
     check(is_array($examRecycleItem), 'Archived exam was not registered in recycle bin.');
-    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$examRecycleItem['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores a draft exam from recycle bin');
-    $restoredExam = expect_status(api_request($base, '/api/exams.php?action=detail&id=' . $recycleExamId, 'GET', null, $cookie), 200, 'Restored exam is available to administrators');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$examRecycleItem['id'], 'POST', [], $examAdminCookie, $examAdminCsrf), 200, 'Admin restores a draft exam from recycle bin');
+    $restoredExam = expect_status(api_request($base, '/api/exams.php?action=detail&id=' . $recycleExamId, 'GET', null, $examAdminCookie), 200, 'Restored exam is available to administrators');
     check(($restoredExam['data']['status'] ?? '') === 'draft', 'Restored exam did not recover its original draft status.');
 
     $studentMarksheetWallet = expect_status(api_request($base, '/api/marksheets.php?action=list', 'GET', null, $cookie), 200, 'Student loads own persistent marksheet wallet');

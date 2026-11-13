@@ -39,6 +39,8 @@ jobs:
           test -f "$RUNNER_TEMP/package-check/index.html"
           test -f "$RUNNER_TEMP/package-check/api/_bootstrap.php"
           test -f "$RUNNER_TEMP/package-check/scripts/migrate.php"
+          test -f "$RUNNER_TEMP/package-check/scripts/create-admin.php"
+          ! find "$RUNNER_TEMP/package-check/scripts" -maxdepth 1 -type f -name 'test-*' | grep -q .
           test -f "$RUNNER_TEMP/package-check/storage/private/.htaccess"
           test -f "$RUNNER_TEMP/package-check/docs/CPANEL-DEPLOYMENT.md"
           ! find "$RUNNER_TEMP/package-check" -type f \( -name '.env' -o -name '.env.*' \) | grep -q .

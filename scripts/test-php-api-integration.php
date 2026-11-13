@@ -199,6 +199,7 @@ $cmsPostId = null;
 $cmsTestimonialId = null;
 $paymentId = null;
 $batchId = null;
+$purgeBatchId = null;
 $routineId = null;
 $certificateId = null;
 $admissionApplicationId = null;
@@ -924,9 +925,28 @@ try {
     expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch');
     $studentBatchesAfterDelete = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student batch list hides deleted batches');
     check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterDelete['data'] ?? []), true), 'Deleted batch remained visible to students.');
-    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin restores a batch');
+    $recycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Administrator lists recycle-bin records');
+    $batchRecycleRows = array_values(array_filter($recycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId));
+    check(count($batchRecycleRows) === 1, 'Soft-deleted batch was not recorded exactly once in the recycle bin.');
+    $batchRecycleItemId = (int)$batchRecycleRows[0]['id'];
+    $branchRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager lists only their recycle-bin items');
+    check(count(array_filter($branchRecycleItems['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $batchRecycleItemId)) === 1, 'Branch manager could not see the batch from their own branch.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Administrator cannot permanently delete before the retention period');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $branchManagerCookie, $branchManagerCsrf), 403, 'Branch manager cannot purge recycle-bin records');
+    $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?')->execute([$batchRecycleItemId]);
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 409, 'Expired recycle-bin item cannot be restored');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Batch with enrollment/routine history is retained after expiry');
+    $blockedRecycleItem = $db->prepare('SELECT purge_error FROM recycle_bin_items WHERE id = ?');
+    $blockedRecycleItem->execute([$batchRecycleItemId]);
+    check((string)$blockedRecycleItem->fetchColumn() !== '', 'Blocked permanent deletion did not record the dependency reason.');
+    $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY), purge_error = NULL WHERE id = ?')->execute([$batchRecycleItemId]);
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 200, 'Branch manager restores an item from the assigned branch');
     $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
     check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch again for direct-restore reconciliation');
+    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Direct batch restore endpoint succeeds');
+    $activeBatchRecycle = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle-bin list refreshes after direct batch restore');
+    check(count(array_filter($activeBatchRecycle['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId)) === 0, 'Direct batch restore did not reconcile its recycle-bin record.');
     $batchUpdateBase = [
         'course_id' => $courseIds[0], 'name' => 'API Integration Batch ' . $suffix,
         'batch_code' => 'TST-' . strtoupper($suffix), 'schedule' => 'Sun 10:00-11:00',
@@ -1282,6 +1302,26 @@ try {
     check((float)($commissionAfterFullRefund['data']['totals']['gross_commission'] ?? 0) === 0.0
         && (float)($commissionAfterFullRefund['data']['totals']['overpaid_commission'] ?? 0) === 500.0,
         'Full refund did not remove the earned commission and report the already-paid recovery amount.');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes the historical batch for expiry purge test');
+    $purgeBatch = expect_status(api_request($base, '/api/batches.php?action=create', 'POST', [
+        'course_id' => $courseIds[0], 'name' => 'Expired Purge Batch ' . $suffix,
+        'batch_code' => 'PUR-' . strtoupper($suffix), 'schedule' => 'Mon 12:00-13:00',
+        'room_number' => 'Purge Room', 'instructor_user_id' => $teacherId, 'max_capacity' => 5,
+        'start_date' => '2026-11-15', 'end_date' => '2027-03-01', 'status' => 'upcoming',
+    ], $cookie, $csrf), 201, 'Admin creates an empty batch for retention purge test');
+    $purgeBatchId = (int)$purgeBatch['data']['id'];
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $purgeBatchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes the empty batch');
+    $db->prepare("UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE entity_type = 'batch' AND entity_id IN (?, ?) AND status = 'active'")->execute([$batchId, $purgeBatchId]);
+    $purgeResult = expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $cookie, $csrf), 200, 'Administrator purges only expired recycle-bin records');
+    check((int)($purgeResult['data']['purged'] ?? 0) >= 1, 'Expired batch without dependencies was not permanently purged.');
+    check(count($purgeResult['data']['blocked'] ?? []) >= 1, 'Batch with enrolment/routine history was not reported as retained.');
+    $purgedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ?');
+    $purgedBatchCheck->execute([$purgeBatchId]);
+    check((int)$purgedBatchCheck->fetchColumn() === 0, 'Expired batch without dependencies still exists after purge.');
+    $retainedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ? AND deleted_at IS NOT NULL');
+    $retainedBatchCheck->execute([$batchId]);
+    check((int)$retainedBatchCheck->fetchColumn() === 1, 'Batch with historical enrollments/routines was permanently deleted.');
+
     $enrollmentAfterRefund = $db->prepare('SELECT status FROM course_enrollments WHERE user_id = ? AND course_id = ?');
     $enrollmentAfterRefund->execute([$studentId, $courseIds[0]]);
     check($enrollmentAfterRefund->fetchColumn() === 'cancelled', 'Course enrollment was not cancelled after full refund.');
@@ -1446,9 +1486,14 @@ try {
         $db->prepare('DELETE FROM content_items WHERE id = ?')->execute([$cleanupContentId]);
     }
     if ($batchId !== null) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'batch' AND entity_id = ?")->execute([$batchId]);
         $db->prepare('DELETE FROM batch_routine_slots WHERE batch_id = ?')->execute([$batchId]);
         $db->prepare('DELETE FROM batch_enrollments WHERE batch_id = ?')->execute([$batchId]);
         $db->prepare('DELETE FROM batches WHERE id = ?')->execute([$batchId]);
+    }
+    if ($purgeBatchId !== null) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'batch' AND entity_id = ?")->execute([$purgeBatchId]);
+        $db->prepare('DELETE FROM batches WHERE id = ?')->execute([$purgeBatchId]);
     }
     if ($teacherId !== null) $db->prepare('DELETE FROM teacher_course_assignments WHERE teacher_user_id = ?')->execute([$teacherId]);
     $cleanupCourseIds = array_values(array_filter([...$courseIds, $draftCourseId, $branchManagedCourseId]));

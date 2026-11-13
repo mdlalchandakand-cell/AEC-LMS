@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS teacher_course_assignments (
   assigned_by BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,
-  UNIQUE KEY uq_teacher_course_assignment (course_id, teacher_user_id),
+  INDEX idx_teacher_assignment_course_teacher (course_id, teacher_user_id, is_active),
   INDEX idx_teacher_assignment_teacher_active (teacher_user_id, is_active),
   INDEX idx_teacher_assignment_branch (branch_id, is_active),
   CONSTRAINT fk_teacher_assignment_course FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,

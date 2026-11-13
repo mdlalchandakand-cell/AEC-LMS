@@ -1,0 +1,51 @@
+name: cPanel release package
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: read
+jobs:
+  package:
+    name: Build and assemble real cPanel deployment ZIP
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: latest
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Type-check and build frontend
+        run: |
+          bun run lint
+          bun run build
+      - name: Validate packaging script syntax
+        run: bash -n scripts/package-cpanel-release.sh
+      - name: Assemble and inspect cPanel package
+        run: |
+          bash scripts/package-cpanel-release.sh "$RUNNER_TEMP/release"
+          unzip -l "$RUNNER_TEMP/release/aloms-english-center-cpanel.zip"
+          unzip -q "$RUNNER_TEMP/release/aloms-english-center-cpanel.zip" -d "$RUNNER_TEMP/package-check"
+          test -f "$RUNNER_TEMP/package-check/index.html"
+          test -f "$RUNNER_TEMP/package-check/api/_bootstrap.php"
+          test -f "$RUNNER_TEMP/package-check/scripts/migrate.php"
+          test -f "$RUNNER_TEMP/package-check/storage/private/.htaccess"
+          test -f "$RUNNER_TEMP/package-check/docs/CPANEL-DEPLOYMENT.md"
+          ! find "$RUNNER_TEMP/package-check" -type f \( -name '.env' -o -name '.env.*' \) | grep -q .
+      - name: Upload deployment ZIP
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: aloms-english-center-cpanel
+          path: ${{ runner.temp }}/release/aloms-english-center-cpanel.zip
+          if-no-files-found: error
+          retention-days: 14

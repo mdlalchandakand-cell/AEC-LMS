@@ -1329,6 +1329,7 @@ try {
         $db->prepare('DELETE FROM course_content WHERE content_item_id = ?')->execute([$cleanupContentId]);
         $db->prepare('DELETE FROM content_items WHERE id = ?')->execute([$cleanupContentId]);
     }
+    if ($teacherId !== null) $db->prepare('DELETE FROM teacher_course_assignments WHERE teacher_user_id = ?')->execute([$teacherId]);
     $cleanupCourseIds = array_values(array_filter([...$courseIds, $draftCourseId, $branchManagedCourseId]));
     if ($cleanupCourseIds) {
         $in = implode(',', array_fill(0, count($cleanupCourseIds), '?'));
@@ -1345,7 +1346,6 @@ try {
     if ($studentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$studentId]);
     if ($teacherId !== null) {
         $db->prepare('DELETE FROM teacher_payout_requests WHERE teacher_user_id = ?')->execute([$teacherId]);
-        $db->prepare('DELETE FROM teacher_course_assignments WHERE teacher_user_id = ?')->execute([$teacherId]);
         $db->prepare('DELETE FROM notifications WHERE recipient_user_id = ? OR sender_user_id = ?')->execute([$teacherId, $teacherId]);
         $db->prepare('DELETE FROM audit_logs WHERE user_id = ?')->execute([$teacherId]);
         $db->prepare('DELETE FROM users WHERE id = ?')->execute([$teacherId]);

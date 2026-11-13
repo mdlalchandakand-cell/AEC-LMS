@@ -193,6 +193,7 @@ $contentId = null;
 $draftCoursePreviewContentId = null;
 $paidContentId = null;
 $examId = null;
+$recycleExamId = null;
 $marksheetId = null;
 $questionBankId = null;
 $cmsPostId = null;
@@ -1418,6 +1419,11 @@ try {
     echo 'All PHP API integration checks passed.' . PHP_EOL;
 } finally {
     if ($marksheetId !== null) $db->prepare('DELETE FROM marksheets WHERE id = ?')->execute([$marksheetId]);
+    if ($recycleExamId !== null) {
+        $db->prepare('DELETE FROM exam_attempts WHERE exam_id = ?')->execute([$recycleExamId]);
+        $db->prepare('DELETE FROM exam_questions WHERE exam_id = ?')->execute([$recycleExamId]);
+        $db->prepare('DELETE FROM exams WHERE id = ?')->execute([$recycleExamId]);
+    }
     if ($examId !== null) {
         $db->prepare('DELETE FROM exam_attempts WHERE exam_id = ?')->execute([$examId]);
         $db->prepare('DELETE FROM exam_questions WHERE exam_id = ?')->execute([$examId]);
@@ -1450,6 +1456,7 @@ try {
         $inActors = implode(',', array_fill(0, count($actorIds), '?'));
         $db->prepare("DELETE FROM audit_logs WHERE user_id IN ({$inActors})")->execute($actorIds);
     }
+    $db->exec('DELETE FROM recycle_bin_items');
     if ($cmsPostId !== null) $db->prepare('DELETE FROM cms_posts WHERE id = ?')->execute([$cmsPostId]);
     if ($cmsTestimonialId !== null) $db->prepare('DELETE FROM cms_testimonials WHERE id = ?')->execute([$cmsTestimonialId]);
     $testEbookIds = ['ebook_test_' . $suffix, 'ebook_free_' . $suffix, 'ebook_reject_' . $suffix, 'ebook_archived_' . $suffix];

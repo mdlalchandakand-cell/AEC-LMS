@@ -62,7 +62,6 @@ function api_upload_request(string $base, int $contentId, string $filename, stri
     ];
     if ($cookie !== null && $cookie !== '') $headers[] = 'Cookie: ' . $cookie;
     if ($csrf !== null) $headers[] = 'X-CSRF-Token: ' . $csrf;
-    foreach ($extraHeaders as $header) $headers[] = $header;
     $context = stream_context_create(['http' => [
         'method' => 'POST', 'header' => implode("\r\n", $headers),
         'content' => $body, 'ignore_errors' => true, 'timeout' => 10,
@@ -87,6 +86,7 @@ function api_request(string $base, string $path, string $method = 'GET', ?array 
     if ($cookie !== null && $cookie !== '') $headers[] = 'Cookie: ' . $cookie;
     if ($csrf !== null) $headers[] = 'X-CSRF-Token: ' . $csrf;
     $options = [
+    foreach ($extraHeaders as $header) $headers[] = $header;
         'http' => [
             'method' => $method,
             'header' => implode("\r\n", $headers),

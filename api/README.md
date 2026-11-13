@@ -2,6 +2,21 @@
 
 Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, HTTPS.
 
+## Teacher commissions and payouts
+
+`teacher_commissions.php` calculates teacher earnings from verified course payments after completed refunds. A course may have multiple teacher assignments, but active commission rates for the same course may not exceed 100%. Teacher users can read only their own commission summary and request payouts. Administrators can assign teachers, review payout requests, and mark an approved request paid only after the actual bank/mobile transfer has been confirmed and its external transaction reference is recorded.
+
+- `GET /api/teacher_commissions.php?action=summary` — teacher's own commissions and balances; administrators may omit `teacher_id` for an overview or supply it for one teacher.
+- `GET /api/teacher_commissions.php?action=assignments` — administrator assignment roster.
+- `POST /api/teacher_commissions.php?action=assign` — administrator assigns `course_id`, `teacher_user_id`, and `commission_percentage`.
+- `POST /api/teacher_commissions.php?action=unassign&id={id}` — disable an assignment without deleting historical records.
+- `GET /api/teacher_commissions.php?action=payouts` — teacher's own payout requests or administrator payout queue.
+- `POST /api/teacher_commissions.php?action=request_payout` — teacher requests a payout with amount, method and destination reference.
+- `POST /api/teacher_commissions.php?action=review_payout&id={id}` — administrator approves or rejects a pending request.
+- `POST /api/teacher_commissions.php?action=mark_paid&id={id}` — administrator records the actual external transfer reference after payment is confirmed.
+
+Pending and approved payouts reserve available balance to prevent duplicate/overdrawn requests. A request is not represented as paid until an administrator records the confirmed external transaction reference. Every assignment and payout lifecycle transition is written to the audit log. Branch-manager commission administration remains disabled until a complete branch-scoped workflow is enabled.
+
 ## Guardian portal
 
 `guardians.php` provides consent-based guardian/student links. Guardians can request access using a student's account email, but no student data is returned while the request is pending. The student must accept the request from the student dashboard. Either side can revoke an active link; revocation immediately blocks summary access.

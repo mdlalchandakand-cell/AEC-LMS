@@ -55,7 +55,12 @@ function aec_recycle_purge(PDO $db, array $actor, array $item): array {
     } elseif ($type === 'content') {
         $stmt = $db->prepare('SELECT COUNT(*) FROM course_content WHERE content_item_id = ?');
         $stmt->execute([$entityId]);
-        if ((int)$stmt->fetchColumn() > 0) $blocked = 'Content is linked to one or more courses; unlink it before permanent deletion.';
+        $linkedCount = (int)$stmt->fetchColumn();
+        $media = $db->prepare('SELECT COUNT(*) FROM media_assets WHERE content_item_id = ?');
+        $media->execute([$entityId]);
+        $mediaCount = (int)$media->fetchColumn();
+        if ($linkedCount > 0) $blocked = 'Content is linked to one or more courses; unlink it before permanent deletion.';
+        elseif ($mediaCount > 0) $blocked = 'Content has private media files; remove those files through the media manager before permanent deletion.';
         else $db->prepare('DELETE FROM content_items WHERE id = ? AND deleted_at IS NOT NULL')->execute([$entityId]);
     } elseif ($type === 'batch') {
         $enroll = $db->prepare('SELECT COUNT(*) FROM batch_enrollments WHERE batch_id = ?');

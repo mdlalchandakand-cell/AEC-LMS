@@ -76,7 +76,7 @@ If the database and credentials are correct, apply the migrations:
 php scripts/migrate.php
 ```
 
-The CLI runner uses a MySQL advisory lock, records applied migration checksums in aec_schema_migrations, skips migrations already applied, and refuses to continue if an applied migration file has been changed or removed. Current migrations include 021_private_ebook_files.sql for protected e-book PDFs, 022_private_media_library.sql for protected course media, 023_persistent_marksheets.sql, 024_guardian_student_links.sql and 025_teacher_commissions_and_payouts.sql. Apply the full ordered migration set; do not skip migrations. Never edit an applied migration; add a new numbered migration instead.
+The CLI runner uses a MySQL advisory lock, records applied migration checksums in aec_schema_migrations, skips migrations already applied, and refuses to continue if an applied migration file has been changed or removed. Current migrations include 021_private_ebook_files.sql for protected e-book PDFs, 022_private_media_library.sql for protected course media, 023_persistent_marksheets.sql, 024_guardian_student_links.sql and 025_teacher_commissions_and_payouts.sql and 026_persistent_batches_and_routines.sql. Apply the full ordered migration set; do not skip migrations. Never edit an applied migration; add a new numbered migration instead.
 
 MySQL DDL may auto-commit. The runner does not provide transactional rollback. Back up the database before upgrades and inspect any failed migration before retrying.
 

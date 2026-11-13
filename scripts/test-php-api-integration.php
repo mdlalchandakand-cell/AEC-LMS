@@ -174,6 +174,9 @@ $csrf = null;
 $adminId = null;
 $studentId = null;
 $guardianId = null;
+$guardianOtherBranchId = null;
+$guardianOtherBranchStudentId = null;
+$guardianOtherBranchStudentEmail = null;
 $branchManagerId = null;
 $branchId = null;
 $branchManagedStudentId = null;
@@ -1157,6 +1160,19 @@ try {
     ], $guardianCookie), 200, 'Guardian login for student-link tests');
     $guardianCsrf = $guardianLogin['data']['csrf_token'] ?? null;
     expect_status(api_request($base, '/api/guardians.php?action=my_students', 'GET', null, $guardianCookie), 200, 'Guardian loads an empty linked-student list');
+
+    // A guardian cannot create a link to a student assigned to a different branch.
+    $guardianOtherBranchCode = 'GXB-' . strtoupper($suffix);
+    $db->prepare('INSERT INTO branches (code, name) VALUES (?, ?)')->execute([$guardianOtherBranchCode, 'Guardian Cross-Branch Test']);
+    $guardianOtherBranchId = (int)$db->lastInsertId();
+    $guardianOtherBranchStudentEmail = "api-cross-branch-student-{$suffix}@example.test";
+    $insertUser->execute(['Cross Branch Student', $guardianOtherBranchStudentEmail, password_hash('TestCrossBranch!Pass123', PASSWORD_DEFAULT), 'student']);
+    $guardianOtherBranchStudentId = (int)$db->lastInsertId();
+    $db->prepare('UPDATE users SET branch_id = ? WHERE id = ?')->execute([$guardianOtherBranchId, $guardianOtherBranchStudentId]);
+    expect_status(api_request($base, '/api/guardians.php?action=request', 'POST', [
+        'student_email' => $guardianOtherBranchStudentEmail, 'relationship' => 'Parent',
+    ], $guardianCookie, $guardianCsrf), 403, 'Guardian cannot request a student from another branch');
+
     $guardianRequest = expect_status(api_request($base, '/api/guardians.php?action=request', 'POST', [
         'student_email' => $studentEmail, 'relationship' => 'Parent',
     ], $guardianCookie, $guardianCsrf), 201, 'Guardian requests access to a student account');
@@ -1178,6 +1194,15 @@ try {
     check((int)($guardianSummary['data']['student']['id'] ?? 0) === $studentId, 'Guardian summary returned the wrong student.');
     expect_status(api_request($base, '/api/guardians.php?action=revoke&id=' . $guardianLinkId, 'POST', [], $studentConsentCookie, $studentConsentCsrf), 200, 'Student revokes guardian access');
     expect_status(api_request($base, '/api/guardians.php?action=summary&student_id=' . $studentId, 'GET', null, $guardianCookie), 404, 'Guardian access is removed immediately after revocation');
+
+    // A previously revoked link may be requested again, but still requires a fresh student decision.
+    $repeatRequest = expect_status(api_request($base, '/api/guardians.php?action=request', 'POST', [
+        'student_email' => $studentEmail, 'relationship' => 'Parent',
+    ], $guardianCookie, $guardianCsrf), 201, 'Guardian can submit a fresh request after revocation');
+    $repeatLinkId = (int)($repeatRequest['data']['id'] ?? 0);
+    check($repeatLinkId === $guardianLinkId, 'A repeated guardian request should reuse the unique relationship row.');
+    expect_status(api_request($base, '/api/guardians.php?action=respond&id=' . $repeatLinkId, 'POST', ['decision' => 'reject'], $studentConsentCookie, $studentConsentCsrf), 200, 'Student can reject a renewed guardian request');
+    expect_status(api_request($base, '/api/guardians.php?action=summary&student_id=' . $studentId, 'GET', null, $guardianCookie), 404, 'Guardian cannot view records after the student rejects a renewed request');
 
     $adminBranchCookie = null;
     $adminBranchLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', [
@@ -1220,6 +1245,7 @@ try {
         $db->prepare('DELETE FROM course_payments WHERE id = ?')->execute([$paymentId]);
     }
     if (isset($guardianEmail) && is_string($guardianEmail)) $db->prepare("DELETE FROM account_action_attempts WHERE action = 'guardian_link' AND email = ?")->execute([$guardianEmail]);
+    if (is_string($guardianOtherBranchStudentEmail)) $db->prepare("DELETE FROM account_action_attempts WHERE action = 'guardian_link' AND email = ?")->execute([$guardianOtherBranchStudentEmail]);
     if ($guardianId !== null && $studentId !== null) {
         $db->prepare('DELETE FROM guardian_student_links WHERE guardian_user_id = ? OR student_user_id = ?')->execute([$guardianId, $studentId]);
         $db->prepare('DELETE FROM notifications WHERE recipient_user_id IN (?, ?) OR sender_user_id IN (?, ?)')->execute([$guardianId, $studentId, $guardianId, $studentId]);
@@ -1282,11 +1308,13 @@ try {
             $db->prepare('DELETE FROM course_categories WHERE id = ?')->execute([$categoryId]);
         }
     }
+    if ($guardianOtherBranchStudentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$guardianOtherBranchStudentId]);
     if ($guardianId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$guardianId]);
     if ($adminId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$adminId]);
     if ($studentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$studentId]);
     if ($teacherId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$teacherId]);
     if ($branchManagerId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$branchManagerId]);
+    if ($guardianOtherBranchId !== null) $db->prepare('DELETE FROM branches WHERE id = ?')->execute([$guardianOtherBranchId]);
     if ($branchId !== null) $db->prepare('DELETE FROM branches WHERE id = ?')->execute([$branchId]);
     if ($otherBranchId !== null) $db->prepare('DELETE FROM branches WHERE id = ?')->execute([$otherBranchId]);
     if (is_resource($server)) {

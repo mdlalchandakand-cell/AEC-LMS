@@ -31,19 +31,6 @@ function aec_batch_branch_check(PDO $db, array $actor, ?int $branchId): void {
     }
 }
 
-function aec_batch_schedule_lock(PDO $db): string {
-    $name = 'aec_batch_routine_schedule';
-    $stmt = $db->prepare('SELECT GET_LOCK(?, 5)');
-    $stmt->execute([$name]);
-    if ((int)$stmt->fetchColumn() !== 1) aec_fail('The class schedule is being updated. Please retry shortly.', 409);
-    return $name;
-}
-
-function aec_batch_schedule_unlock(PDO $db, string $name): void {
-    $stmt = $db->prepare('SELECT RELEASE_LOCK(?)');
-    $stmt->execute([$name]);
-}
-
 function aec_batch_time(string $value): bool {
     return (bool)preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/', $value);
 }
@@ -66,10 +53,7 @@ if ($action === 'list') {
         $sql .= ' AND (b.instructor_user_id = ? OR EXISTS (SELECT 1 FROM batch_routine_slots r WHERE r.batch_id = b.id AND r.instructor_user_id = ? AND r.deleted_at IS NULL))';
         $params[] = (int)$actor['id']; $params[] = (int)$actor['id'];
     } elseif ($actor['role'] === 'student') {
-        $sql .= " AND EXISTS (SELECT 1 FROM batch_enrollments be
-            JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id
-              AND ce.status IN ('active','completed')
-            WHERE be.batch_id = b.id AND be.user_id = ? AND be.status = 'active')";
+        $sql .= " AND EXISTS (SELECT 1 FROM batch_enrollments be WHERE be.batch_id = b.id AND be.user_id = ? AND be.status = 'active')";
         $params[] = (int)$actor['id'];
     } elseif (!in_array($actor['role'], ['admin','super_admin'], true)) {
         aec_fail('You cannot view academic batches.', 403);
@@ -107,7 +91,6 @@ if ($action === 'create' || $action === 'update') {
     $teacherStmt->execute([$instructorId]); $teacher = $teacherStmt->fetch();
     if (!$teacher || !(bool)$teacher['is_active'] || !in_array($teacher['role'], ['teacher','assistant_teacher'], true)) aec_fail('Active instructor account not found.', 404);
     if ($course['branch_id'] !== null && $teacher['branch_id'] !== null && (int)$course['branch_id'] !== (int)$teacher['branch_id']) aec_fail('Course and instructor must belong to the same branch.', 403);
-    if ($actor['role'] === 'branch_manager' && $teacher['branch_id'] !== null && (int)$teacher['branch_id'] !== (int)$actor['branch_id']) aec_fail('Instructor belongs to a different branch.', 403);
     $branchId = $actor['role'] === 'branch_manager'
         ? (int)$actor['branch_id']
         : ($course['branch_id'] !== null ? (int)$course['branch_id'] : ($teacher['branch_id'] !== null ? (int)$teacher['branch_id'] : null));
@@ -115,12 +98,6 @@ if ($action === 'create' || $action === 'update') {
     aec_batch_branch_check($db, $actor, $branchId);
     $status = (string)($input['status'] ?? 'upcoming');
     if (!in_array($status, ['upcoming','ongoing','completed','cancelled'], true)) aec_fail('Invalid batch status.', 422);
-
-    $duplicateCode = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = ?' . ($action === 'update' ? ' AND id <> ?' : '') . ' LIMIT 1');
-    $duplicateParams = [$branchId, $code];
-    if ($action === 'update') $duplicateParams[] = $id;
-    $duplicateCode->execute($duplicateParams);
-    if ($duplicateCode->fetchColumn()) aec_fail('A batch with this code already exists in this branch.', 409);
 
     if ($action === 'create') {
         $stmt = $db->prepare('INSERT INTO batches (course_id, branch_id, name, batch_code, schedule_label, room_number, instructor_user_id, max_capacity, start_date, end_date, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
@@ -136,17 +113,10 @@ if ($action === 'create' || $action === 'update') {
     }
 
     $id = aec_batch_id();
-    $scope = $db->prepare('SELECT branch_id, course_id FROM batches WHERE id = ? AND deleted_at IS NULL FOR UPDATE');
+    $scope = $db->prepare('SELECT branch_id FROM batches WHERE id = ? AND deleted_at IS NULL');
     $scope->execute([$id]); $existing = $scope->fetch();
     if (!$existing) aec_fail('Batch not found.', 404);
     aec_batch_branch_check($db, $actor, $existing['branch_id'] === null ? null : (int)$existing['branch_id']);
-    $newBranchId = $branchId;
-    $oldBranchId = $existing['branch_id'] === null ? null : (int)$existing['branch_id'];
-    if ((int)$existing['course_id'] !== (int)$courseId || $oldBranchId !== $newBranchId) {
-        $activeRoster = $db->prepare("SELECT COUNT(*) FROM batch_enrollments WHERE batch_id = ? AND status = 'active'");
-        $activeRoster->execute([$id]);
-        if ((int)$activeRoster->fetchColumn() > 0) aec_fail('Unenroll all active students before changing a batch course or branch.', 409);
-    }
     $stmt = $db->prepare('UPDATE batches SET course_id = ?, branch_id = ?, name = ?, batch_code = ?, schedule_label = ?, room_number = ?, instructor_user_id = ?, max_capacity = ?, start_date = ?, end_date = ?, status = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NULL');
     try {
         $stmt->execute([$courseId, $branchId, $name, $code, $schedule ?: null, $room ?: null, $instructorId, $capacity, $startDate, $endDate, $status, $id]);
@@ -173,9 +143,6 @@ if ($action === 'delete' || $action === 'restore') {
         aec_batch_audit($db, $actor, 'batch.deleted', $id);
         aec_ok(['id' => $id], 'Batch moved to recycle bin.');
     }
-    $duplicate = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = (SELECT batch_code FROM batches WHERE id = ?) AND id <> ? LIMIT 1');
-    $duplicate->execute([$batch['branch_id'], $id, $id]);
-    if ($duplicate->fetchColumn()) aec_fail('Another batch already uses this code in the branch; rename it before restoring.', 409);
     $db->prepare('UPDATE batches SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL')->execute([$id]);
     aec_batch_audit($db, $actor, 'batch.restored', $id);
     aec_ok(['id' => $id], 'Batch restored.');
@@ -212,11 +179,8 @@ if ($action === 'enroll' || $action === 'unenroll') {
         $existingEnrollment->execute([$batchId, $studentId]);
         $existingStatus = $existingEnrollment->fetchColumn();
         if ($existingStatus !== 'active') {
-            $count = $db->prepare("SELECT COUNT(*) FROM batch_enrollments be
-                JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = ?
-                  AND ce.status IN ('active','completed')
-                WHERE be.batch_id = ? AND be.status = 'active'");
-            $count->execute([(int)$batch['course_id'], $batchId]);
+            $count = $db->prepare("SELECT COUNT(*) FROM batch_enrollments WHERE batch_id = ? AND status = 'active'");
+            $count->execute([$batchId]);
             if ((int)$count->fetchColumn() >= (int)$batch['max_capacity']) aec_fail('Batch capacity has been reached.', 409);
         }
         $db->prepare("INSERT INTO batch_enrollments (batch_id, user_id, branch_id, status, enrolled_by) VALUES (?, ?, ?, 'active', ?) ON DUPLICATE KEY UPDATE status = 'active', enrolled_by = VALUES(enrolled_by), enrolled_at = NOW(), updated_at = NOW()")
@@ -280,9 +244,7 @@ if ($action === 'students') {
     $stmt = $db->prepare("SELECT be.id, be.user_id, u.name, u.email, u.phone, be.status, be.enrolled_at
         FROM batch_enrollments be JOIN users u ON u.id = be.user_id
         JOIN batches b ON b.id = be.batch_id
-        JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id
-          AND ce.status IN ('active','completed')
-        WHERE be.batch_id = ? AND b.deleted_at IS NULL AND be.status = 'active'" . ($actor['role'] === 'branch_manager' ? ' AND b.branch_id = ?' : '') . " ORDER BY u.name");
+        WHERE be.batch_id = ? AND b.deleted_at IS NULL" . ($actor['role'] === 'branch_manager' ? ' AND b.branch_id = ?' : '') . " ORDER BY u.name");
     $stmt->execute($actor['role'] === 'branch_manager' ? [$batchId, (int)$actor['branch_id']] : [$batchId]);
     aec_ok($stmt->fetchAll());
 }
@@ -301,10 +263,7 @@ if ($action === 'routines') {
     } elseif (in_array($actor['role'], ['teacher','assistant_teacher'], true)) {
         $sql .= ' AND (r.instructor_user_id = ? OR b.instructor_user_id = ?)'; $params[] = (int)$actor['id']; $params[] = (int)$actor['id'];
     } elseif ($actor['role'] === 'student') {
-        $sql .= " AND EXISTS (SELECT 1 FROM batch_enrollments be
-            JOIN course_enrollments ce ON ce.user_id = be.user_id AND ce.course_id = b.course_id
-              AND ce.status IN ('active','completed')
-            WHERE be.batch_id = b.id AND be.user_id = ? AND be.status = 'active')"; $params[] = (int)$actor['id'];
+        $sql .= " AND EXISTS (SELECT 1 FROM batch_enrollments be WHERE be.batch_id = b.id AND be.user_id = ? AND be.status = 'active')"; $params[] = (int)$actor['id'];
     } elseif (!in_array($actor['role'], ['admin','super_admin'], true)) aec_fail('You cannot view class routines.', 403);
     $batchId = filter_input(INPUT_GET, 'batch_id', FILTER_VALIDATE_INT);
     if ($batchId && $batchId > 0) { $sql .= ' AND r.batch_id = ?'; $params[] = $batchId; }
@@ -329,7 +288,6 @@ if ($action === 'create_routine') {
     if (!$batchId || !in_array($day, ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'], true)
         || !aec_batch_time($start) || !aec_batch_time($end) || $end <= $start
         || $subject === '' || mb_strlen($subject) > 180 || mb_strlen($room) > 120) aec_fail('Valid batch, day, time range, subject and room are required.', 422);
-    $scheduleLock = aec_batch_schedule_lock($db);
     $db->beginTransaction();
     try {
         $batchStmt = $db->prepare('SELECT * FROM batches WHERE id = ? AND deleted_at IS NULL FOR UPDATE');
@@ -342,23 +300,19 @@ if ($action === 'create_routine') {
         if (!$teacher || !(bool)$teacher['is_active'] || !in_array($teacher['role'], ['teacher','assistant_teacher'], true)) aec_fail('Active instructor account not found.', 404);
         if ($batch['branch_id'] !== null && $teacher['branch_id'] !== null && (int)$teacher['branch_id'] !== (int)$batch['branch_id']) aec_fail('Instructor belongs to a different branch.', 403);
         $overlap = $db->prepare("SELECT r.id FROM batch_routine_slots r
-            WHERE (r.branch_id IS NULL OR r.branch_id <=> ? OR ? IS NULL)
-              AND r.day_of_week = ? AND r.deleted_at IS NULL
+            WHERE r.branch_id <=> ? AND r.day_of_week = ? AND r.deleted_at IS NULL
               AND r.start_time < ? AND r.end_time > ?
               AND (r.instructor_user_id = ? OR (? <> '' AND r.room_number = ?))
             LIMIT 1");
-        $overlap->execute([$batch['branch_id'], $batch['branch_id'], $day, $end, $start, $instructorId, $room, $room]);
+        $overlap->execute([$batch['branch_id'], $day, $end, $start, $instructorId, $room, $room]);
         if ($overlap->fetchColumn()) aec_fail('The instructor or room already has a class during this time.', 409);
         $stmt = $db->prepare('INSERT INTO batch_routine_slots (batch_id, branch_id, day_of_week, start_time, end_time, subject, instructor_user_id, room_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->execute([$batchId, $batch['branch_id'], $day, $start . ':00', $end . ':00', $subject, $instructorId, $room ?: null, (int)$actor['id']]);
         $id = (int)$db->lastInsertId();
         aec_batch_audit($db, $actor, 'batch.routine_created', $id, ['batch_id' => $batchId, 'day' => $day, 'start_time' => $start, 'end_time' => $end]);
-        $db->commit();
-        aec_batch_schedule_unlock($db, $scheduleLock);
-        aec_ok(['id' => $id], 'Routine slot created.', 201);
+        $db->commit(); aec_ok(['id' => $id], 'Routine slot created.', 201);
     } catch (Throwable $e) {
         if ($db->inTransaction()) $db->rollBack();
-        aec_batch_schedule_unlock($db, $scheduleLock);
         throw $e;
     }
 }

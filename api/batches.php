@@ -227,7 +227,7 @@ if ($action === 'eligible_students') {
           AND NOT EXISTS (SELECT 1 FROM batch_enrollments be WHERE be.batch_id = ? AND be.user_id = u.id AND be.status = 'active')";
     $params = [(int)$batch['course_id'], $batch['branch_id'], $batch['branch_id'], $batchId];
     if ($actor['role'] === 'branch_manager') {
-        $sql .= ' AND (u.branch_id = ? OR u.branch_id IS NULL)';
+        $sql .= ' AND u.branch_id = ?';
         $params[] = (int)$actor['branch_id'];
     }
     $sql .= ' ORDER BY u.name LIMIT 300';

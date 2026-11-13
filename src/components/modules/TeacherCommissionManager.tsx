@@ -175,9 +175,9 @@ export const TeacherCommissionManager: React.FC = () => {
                 return <tr key={id}>
                   {isAdmin && <td className="p-3 font-semibold">{String(row.teacher_name || '')}</td>}
                   <td className="p-3 font-bold">{money(row.amount)}</td>
-                  <td className="p-3"><div>{String(row.payout_method)} · {String(row.account_reference)}</div>{row.bank_name && <div className="text-slate-500">{String(row.bank_name)} / {String(row.bank_branch || '')}</div>}</td>
+                  <td className="p-3"><div>{String(row.payout_method)} · {String(row.account_reference)}</div>{Boolean(row.bank_name) && <div className="text-slate-500">{String(row.bank_name)} / {String(row.bank_branch || '')}</div>}</td>
                   <td className="p-3">{dateText(row.requested_at)}</td>
-                  <td className="p-3"><span className="capitalize">{status}</span>{row.external_transaction_reference && <div className="text-[10px] text-slate-500">{String(row.external_transaction_reference)}</div>}</td>
+                  <td className="p-3"><span className="capitalize">{status}</span>{Boolean(row.external_transaction_reference) && <div className="text-[10px] text-slate-500">{String(row.external_transaction_reference)}</div>}</td>
                   {isAdmin && <td className="p-3">
                     {status === 'pending' && <div className="flex gap-1"><button disabled={busy} onClick={() => void reviewPayout(id, 'approve')} className="px-2 py-1 rounded bg-emerald-600 text-white">Approve</button><button disabled={busy} onClick={() => void reviewPayout(id, 'reject')} className="px-2 py-1 rounded bg-rose-600 text-white">Reject</button></div>}
                     {status === 'approved' && <div className="space-y-1"><input value={paidReference[id] || ''} onChange={e => setPaidReference(prev => ({ ...prev, [id]: e.target.value }))} placeholder="Actual transfer reference" className="w-44 border rounded px-2 py-1" /><button disabled={busy} onClick={() => void markPaid(id)} className="px-2 py-1 rounded bg-blue-600 text-white">Confirm paid</button></div>}

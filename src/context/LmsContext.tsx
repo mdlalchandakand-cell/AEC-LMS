@@ -1557,22 +1557,14 @@ export const LmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     });
   };
 
-  const verifyEnvatoPurchaseCode = (code: string): { isValid: boolean; message: string } => {
-    if (!code || code.trim().length < 8) {
-      return { isValid: false, message: 'Invalid Purchase Code format. Please enter a valid Envato license key.' };
-    }
-    const updated: EnvatoLicenseInfo = {
-      purchaseCode: code.trim(),
-      licenseType: 'Extended License',
-      buyerUsername: 'verified_envato_customer',
-      supportedUntil: '2026-12-31',
-      itemVersion: '2.5.0 Production',
-      isValid: true,
-      domain: window.location.hostname
+  const verifyEnvatoPurchaseCode = (_code: string): { isValid: boolean; message: string } => {
+    // Purchase-code verification must be performed by a trusted server-side
+    // integration using the publisher's private Envato API credentials.
+    // A browser-only format check is not proof of purchase or license validity.
+    return {
+      isValid: false,
+      message: 'Server-side Envato verification is not configured. The purchase code was not accepted or stored.'
     };
-    setEnvatoLicense(updated);
-    localStorage.setItem('aec_lms_envato_license', JSON.stringify(updated));
-    return { isValid: true, message: 'Envato CodeCanyon Purchase Code verified and activated successfully!' };
   };
 
   const unreadNotificationsCount = notificationUnreadCount;

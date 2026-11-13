@@ -172,6 +172,7 @@ check(is_resource($server), 'Could not start PHP built-in server.');
 $cookie = null;
 $csrf = null;
 $adminId = null;
+$accountantId = null;
 $studentId = null;
 $guardianId = null;
 $guardianOtherBranchId = null;
@@ -875,8 +876,64 @@ try {
     $cookie = null;
     $adminLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $adminEmail, 'password' => $adminPassword], $cookie), 200, 'Admin re-login');
     $csrf = $adminLogin['data']['csrf_token'] ?? null;
+    $commissionAssignment = expect_status(api_request($base, '/api/teacher_commissions.php?action=assign', 'POST', [
+        'course_id' => $courseIds[0], 'teacher_user_id' => $teacherId, 'commission_percentage' => 60,
+    ], $cookie, $csrf), 200, 'Admin assigns teacher and commission rate before payment verification');
+    $commissionAssignmentId = (int)$commissionAssignment['data']['id'];
     $verified = expect_status(api_request($base, '/api/payments.php?action=verify&id=' . $paymentId, 'POST', [], $cookie, $csrf), 200, 'Admin verifies payment');
     check(($verified['data']['course_access_activated'] ?? false) === true, 'Full verified payment did not activate course access.');
+
+    // Persistent teacher commission: verified revenue accrues commission, payout reservations prevent overspending.
+    $adminCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin reads teacher commission summary');
+    check((float)($adminCommissionSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Commission was not calculated as 60% of verified net course revenue.');
+    $teacherCommissionCookie = null;
+    $teacherCommissionLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', [
+        'email' => "api-teacher-{$suffix}@example.test", 'password' => 'TestTeacher!Pass123',
+    ], $teacherCommissionCookie), 200, 'Teacher login for commission and payout workflow');
+    $teacherCommissionCsrf = $teacherCommissionLogin['data']['csrf_token'] ?? null;
+    $teacherCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary', 'GET', null, $teacherCommissionCookie), 200, 'Teacher reads own commission summary');
+    check((float)($teacherCommissionSummary['data']['totals']['available_balance'] ?? 0) === 600.0, 'Teacher available commission balance is incorrect.');
+    $payoutRequest = expect_status(api_request($base, '/api/teacher_commissions.php?action=request_payout', 'POST', [
+        'amount' => '500.00', 'payout_method' => 'bKash', 'account_reference' => '01700000000',
+    ], $teacherCommissionCookie, $teacherCommissionCsrf), 201, 'Teacher requests a payout within available balance');
+    $payoutRequestId = (int)$payoutRequest['data']['id'];
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=request_payout', 'POST', [
+        'amount' => '101.00', 'payout_method' => 'Nagad', 'account_reference' => '01800000000',
+    ], $teacherCommissionCookie, $teacherCommissionCsrf), 422, 'Teacher cannot reserve more than remaining commission balance');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $teacherCommissionCookie, $teacherCommissionCsrf), 200, 'Teacher logout after payout request');
+    $accountantEmail = "api-accountant-{$suffix}@example.test";
+    $insertUser->execute(['API Commission Accountant', $accountantEmail, password_hash('TestAccountant!Pass123', PASSWORD_DEFAULT), 'accountant']);
+    $accountantId = (int)$db->lastInsertId();
+    $db->prepare('UPDATE users SET branch_id = ? WHERE id = ?')->execute([$branchId, $accountantId]);
+    $accountantCookie = null;
+    $accountantLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', [
+        'email' => $accountantEmail, 'password' => 'TestAccountant!Pass123',
+    ], $accountantCookie), 200, 'Accountant login for teacher payout approvals');
+    $accountantCsrf = $accountantLogin['data']['csrf_token'] ?? null;
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=summary', 'GET', null, $accountantCookie), 200, 'Accountant reads commission overview');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=payouts', 'GET', null, $accountantCookie), 200, 'Accountant reads payout queue');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=assignments', 'GET', null, $accountantCookie), 403, 'Accountant cannot change teacher commission assignments');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=assign', 'POST', [
+        'course_id' => $courseIds[0], 'teacher_user_id' => $teacherId, 'commission_percentage' => 25,
+    ], $accountantCookie, $accountantCsrf), 403, 'Accountant cannot set teacher commission rates');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $payoutRequestId, 'POST', ['decision' => 'approve'], $accountantCookie, $accountantCsrf), 200, 'Accountant approves teacher payout');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=mark_paid&id=' . $payoutRequestId, 'POST', [
+        'external_transaction_reference' => 'PAYOUT-' . strtoupper($suffix),
+    ], $accountantCookie, $accountantCsrf), 200, 'Accountant records confirmed payout with external transaction reference');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $accountantCookie, $accountantCsrf), 200, 'Accountant logout after payout reconciliation');
+    $paidCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin verifies paid commission totals');
+    check((float)($paidCommissionSummary['data']['totals']['paid_commission'] ?? 0) === 500.0
+        && (float)($paidCommissionSummary['data']['totals']['available_balance'] ?? 0) === 100.0,
+        'Paid payout was not reflected in commission totals.');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=unassign&id=' . $commissionAssignmentId, 'POST', [], $cookie, $csrf), 200, 'Admin ends teacher course assignment');
+    $historicalCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin reads historical commission after unassignment');
+    check((float)($historicalCommissionSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Unassigning a teacher erased commission earned while the assignment was active.');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=assign', 'POST', [
+        'course_id' => $courseIds[0], 'teacher_user_id' => $teacherId, 'commission_percentage' => 40,
+    ], $cookie, $csrf), 200, 'Admin reassigns the teacher with a new commission period');
+    $reassignedSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin verifies re-assignment preserves earlier earnings');
+    check((float)($reassignedSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Reassigning a teacher overwrote the previous commission period.');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=assignments', 'GET', null, $branchManagerCookie), 403, 'Branch manager cannot use unscoped commission assignment management');
     $studentInboxAfterPayment = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives payment verification notification');
     check(count(array_filter($studentInboxAfterPayment['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Payment verified')) === 1, 'Payment verification did not notify the student.');
     $branchPayments = expect_status(api_request($base, '/api/payments.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager reloads branch payment queue');
@@ -1251,7 +1308,7 @@ try {
         $db->prepare('DELETE FROM notifications WHERE recipient_user_id IN (?, ?) OR sender_user_id IN (?, ?)')->execute([$guardianId, $studentId, $guardianId, $studentId]);
     }
     if ($adminId !== null || $studentId !== null || $guardianId !== null) {
-        $actorIds = array_values(array_filter([$adminId, $studentId, $guardianId]));
+        $actorIds = array_values(array_filter([$adminId, $studentId, $guardianId, $teacherId]));
         $inActors = implode(',', array_fill(0, count($actorIds), '?'));
         $db->prepare("DELETE FROM audit_logs WHERE user_id IN ({$inActors})")->execute($actorIds);
     }
@@ -1298,6 +1355,7 @@ try {
         $db->prepare('DELETE FROM course_content WHERE content_item_id = ?')->execute([$cleanupContentId]);
         $db->prepare('DELETE FROM content_items WHERE id = ?')->execute([$cleanupContentId]);
     }
+    if ($teacherId !== null) $db->prepare('DELETE FROM teacher_course_assignments WHERE teacher_user_id = ?')->execute([$teacherId]);
     $cleanupCourseIds = array_values(array_filter([...$courseIds, $draftCourseId, $branchManagedCourseId]));
     if ($cleanupCourseIds) {
         $in = implode(',', array_fill(0, count($cleanupCourseIds), '?'));
@@ -1312,7 +1370,17 @@ try {
     if ($guardianId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$guardianId]);
     if ($adminId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$adminId]);
     if ($studentId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$studentId]);
-    if ($teacherId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$teacherId]);
+    if ($accountantId !== null) {
+        $db->prepare('DELETE FROM notifications WHERE recipient_user_id = ? OR sender_user_id = ?')->execute([$accountantId, $accountantId]);
+        $db->prepare('DELETE FROM audit_logs WHERE user_id = ?')->execute([$accountantId]);
+        $db->prepare('DELETE FROM users WHERE id = ?')->execute([$accountantId]);
+    }
+    if ($teacherId !== null) {
+        $db->prepare('DELETE FROM teacher_payout_requests WHERE teacher_user_id = ?')->execute([$teacherId]);
+        $db->prepare('DELETE FROM notifications WHERE recipient_user_id = ? OR sender_user_id = ?')->execute([$teacherId, $teacherId]);
+        $db->prepare('DELETE FROM audit_logs WHERE user_id = ?')->execute([$teacherId]);
+        $db->prepare('DELETE FROM users WHERE id = ?')->execute([$teacherId]);
+    }
     if ($branchManagerId !== null) $db->prepare('DELETE FROM users WHERE id = ?')->execute([$branchManagerId]);
     if ($guardianOtherBranchId !== null) $db->prepare('DELETE FROM branches WHERE id = ?')->execute([$guardianOtherBranchId]);
     if ($branchId !== null) $db->prepare('DELETE FROM branches WHERE id = ?')->execute([$branchId]);

@@ -67,11 +67,25 @@ function aec_commission_target_teacher(PDO $db, array $actor): int {
 if ($action === 'summary') {
     aec_method(['GET']);
     $actor = aec_current_user();
+    $teacherId = null;
     if (in_array($actor['role'], ['teacher','assistant_teacher'], true)) {
         $teacherId = (int)$actor['id'];
     } else {
         $actor = aec_require_permission('teacher_commissions.manage');
-        $teacherId = aec_commission_target_teacher($db, $actor);
+        $target = filter_input(INPUT_GET, 'teacher_id', FILTER_VALIDATE_INT);
+        if ($target && $target > 0) {
+            $teacherStmt = $db->prepare("SELECT id FROM users WHERE id = ? AND role IN ('teacher','assistant_teacher') AND is_active = 1 LIMIT 1");
+            $teacherStmt->execute([$target]);
+            if (!$teacherStmt->fetchColumn()) aec_fail('Teacher account not found.', 404);
+            $teacherId = (int)$target;
+        }
+    }
+    $where = ' WHERE a.is_active = 1 AND c.deleted_at IS NULL';
+    $params = [];
+    if ($teacherId !== null) { $where .= ' AND a.teacher_user_id = ?'; $params[] = $teacherId; }
+    if ($actor['role'] === 'branch_manager') {
+        if (empty($actor['branch_id'])) aec_fail('Your account is not assigned to a branch.', 403);
+        $where .= ' AND a.branch_id = ?'; $params[] = (int)$actor['branch_id'];
     }
     $stmt = $db->prepare("SELECT a.id, a.teacher_user_id, t.name AS teacher_name, c.id AS course_id, c.title AS course_title,
         a.commission_percentage,
@@ -92,12 +106,27 @@ if ($action === 'summary') {
           WHERE p.status IN ('verified','refunded')
           GROUP BY p.course_id, p.branch_id
         ) revenue ON revenue.course_id = c.id AND revenue.branch_id <=> a.branch_id
-        WHERE a.teacher_user_id = ? AND a.is_active = 1 AND c.deleted_at IS NULL
-        ORDER BY c.title");
-    $stmt->execute([$teacherId]);
+        {$where}
+        ORDER BY t.name, c.title");
+    $stmt->execute($params);
     $commissions = $stmt->fetchAll();
-    $gross = aec_commission_gross_cents($db, $teacherId);
-    $payouts = aec_commission_payout_totals($db, $teacherId);
+
+    if ($teacherId !== null) {
+        $gross = aec_commission_gross_cents($db, $teacherId);
+        $payouts = aec_commission_payout_totals($db, $teacherId);
+    } else {
+        $gross = 0;
+        foreach ($commissions as $row) $gross += (int)round((float)$row['gross_commission'] * 100);
+        $payoutQuery = "SELECT
+          COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) AS paid,
+          COALESCE(SUM(CASE WHEN p.status IN ('pending','approved') THEN p.amount ELSE 0 END), 0) AS reserved
+          FROM teacher_payout_requests p";
+        $payoutParams = [];
+        if ($actor['role'] === 'branch_manager') { $payoutQuery .= ' WHERE p.branch_id = ?'; $payoutParams[] = (int)$actor['branch_id']; }
+        $payoutStmt = $db->prepare($payoutQuery); $payoutStmt->execute($payoutParams);
+        $payoutRow = $payoutStmt->fetch() ?: ['paid' => 0, 'reserved' => 0];
+        $payouts = ['paid' => (int)round((float)$payoutRow['paid'] * 100), 'reserved' => (int)round((float)$payoutRow['reserved'] * 100)];
+    }
     aec_ok([
         'commissions' => $commissions,
         'totals' => [

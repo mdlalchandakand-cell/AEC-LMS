@@ -2,6 +2,20 @@
 
 Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, HTTPS.
 
+## Guardian portal
+
+`guardians.php` provides consent-based guardian/student links. Guardians can request access using a student's account email, but no student data is returned while the request is pending. The student must accept the request from the student dashboard. Either side can revoke an active link; revocation immediately blocks summary access.
+
+- `GET /api/guardians.php?action=my_students` — guardian's own pending and active links.
+- `POST /api/guardians.php?action=request` — guardian requests a link with `student_email` and `relationship`.
+- `GET /api/guardians.php?action=incoming` — student's pending incoming requests.
+- `POST /api/guardians.php?action=respond&id={id}` — student accepts or rejects with `decision`.
+- `POST /api/guardians.php?action=revoke&id={id}` — linked guardian or student revokes access.
+- `GET /api/guardians.php?action=summary&student_id={id}` — guardian reads the linked student's courses, attendance, submitted exam results, payments, and certificates.
+- `GET /api/guardians.php?action=list` — administrator/branch-manager link review list, filtered by branch for branch managers.
+
+Guardian/student links require both accounts to be in the same active branch. The API enforces the relationship server-side; client-provided student IDs alone never grant access. Link requests are audited and student consent is mandatory before any progress, attendance, result, payment, or certificate record is disclosed.
+
 ## Server configuration
 
 Set these values in the hosting environment or in a server-side configuration file outside the public web root:

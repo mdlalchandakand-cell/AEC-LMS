@@ -174,7 +174,7 @@ if ($action === 'verify' || $action === 'reject') {
         }
 
         if ($action === 'reject') {
-            $db->prepare("UPDATE course_payments SET status = 'rejected', reviewed_at = NOW(), reviewed_by = ?, rejection_reason = ? WHERE id = ?")
+            $db->prepare("UPDATE course_payments SET status = 'rejected', reviewed_at = NOW(6), reviewed_by = ?, rejection_reason = ? WHERE id = ?")
                 ->execute([(int)$actor['id'], $reason, $id]);
             aec_payment_audit($db, $actor, 'payment.rejected', $id, ['reason' => $reason]);
             aec_notify_user($db, (int)$payment['user_id'], (int)$actor['id'], 'Payment rejected', 'Your payment for ' . $payment['course_title'] . ' was rejected. Reason: ' . $reason, 'warning', 'payments', 'পেমেন্ট প্রত্যাখ্যান করা হয়েছে', 'আপনার ' . $payment['course_title'] . ' কোর্সের পেমেন্ট প্রত্যাখ্যান করা হয়েছে। কারণ: ' . $reason);
@@ -182,7 +182,7 @@ if ($action === 'verify' || $action === 'reject') {
             aec_ok(['id' => $id], 'Payment rejected.');
         }
 
-        $db->prepare("UPDATE course_payments SET status = 'verified', reviewed_at = NOW(), reviewed_by = ? WHERE id = ?")
+        $db->prepare("UPDATE course_payments SET status = 'verified', reviewed_at = NOW(6), reviewed_by = ? WHERE id = ?")
             ->execute([(int)$actor['id'], $id]);
 
         $accountCode = $payment['payment_method'] === 'Bank Transfer'

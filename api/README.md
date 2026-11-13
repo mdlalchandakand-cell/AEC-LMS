@@ -2,6 +2,23 @@
 
 Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, HTTPS.
 
+## Academic batches and weekly routines
+
+`batches.php` provides persistent course batches, student placement, eligible-student lookup, and weekly routine slots. Batch creation requires an active course and instructor; students can be placed only when they have an active/completed enrollment in the batch course. Student batch and routine visibility is removed when course access is cancelled. Branch managers are restricted to their assigned branch, and routine scheduling checks instructor/room overlaps across branch-specific and global schedules.
+
+- `GET /api/batches.php?action=list` — visible batches for the signed-in administrator, branch manager, instructor or enrolled student.
+- `POST /api/batches.php?action=create` — create a batch with `course_id`, `name`, `batch_code`, `instructor_user_id`, `max_capacity`, `start_date`, and `end_date`.
+- `POST /api/batches.php?action=update&id={id}` — update a batch; course/branch changes are blocked while active students remain placed.
+- `POST /api/batches.php?action=delete&id={id}` / `restore&id={id}` — soft-delete and restore a batch.
+- `GET /api/batches.php?action=instructors` — eligible active teacher accounts within the actor's scope.
+- `GET /api/batches.php?action=eligible_students&batch_id={id}` — active course enrollees not already placed in the batch.
+- `GET /api/batches.php?action=students&batch_id={id}` — current batch roster.
+- `POST /api/batches.php?action=enroll&id={id}` / `unenroll&id={id}` — place or remove a student.
+- `GET /api/batches.php?action=routines` — visible weekly routine slots.
+- `POST /api/batches.php?action=create_routine` / `delete_routine&id={id}` — add or remove weekly routine slots.
+
+Routine creation is serialized with a database advisory lock before overlap checks, preventing simultaneous requests from booking the same instructor or room. Batch codes are unique per branch, including global batches. The `batches.manage` permission is granted to administrators and branch managers; students and instructors receive read-only scoped visibility.
+
 ## Teacher commissions and payouts
 
 Teacher commission is calculated from verified course payments after completed refunds. Each course-teacher assignment is a dated period: changing the rate closes the previous period and creates a new one, so payments verified in an earlier period retain the earlier rate. Soft-deleting a course or unassigning a teacher does not erase previously earned commission.

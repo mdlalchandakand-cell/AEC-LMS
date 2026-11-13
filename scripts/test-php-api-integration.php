@@ -1213,7 +1213,7 @@ try {
     $paymentAfterRefund = $db->prepare('SELECT status FROM course_payments WHERE id = ?');
     $paymentAfterRefund->execute([$paymentId]);
     check($paymentAfterRefund->fetchColumn() === 'refunded', 'Payment status was not marked refunded after full refund.');
-    $commissionAfterFullRefund = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Commission summary reflects the full refund');
+    $commissionAfterFullRefund = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $commissionAdminCookie), 200, 'Commission summary reflects the full refund');
     check((float)($commissionAfterFullRefund['data']['totals']['gross_commission'] ?? 0) === 0.0
         && (float)($commissionAfterFullRefund['data']['totals']['overpaid_commission'] ?? 0) === 500.0,
         'Full refund did not remove the earned commission and report the already-paid recovery amount.');

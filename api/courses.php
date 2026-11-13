@@ -108,14 +108,21 @@ if ($action === 'restore') {
     aec_csrf_check();
     $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$id) aec_fail('A valid course id is required.', 422);
-    $sql = 'UPDATE courses SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL';
-    $params = [$id];
-    if ($actor['role'] === 'branch_manager') { $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id']; }
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
-    if (!$stmt->rowCount()) aec_fail('Deleted course not found.', 404);
-    $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'course' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], (int)$id]);
-    aec_ok(['id' => $id], 'Course restored.');
+    $db->beginTransaction();
+    try {
+        $sql = 'UPDATE courses SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL';
+        $params = [$id];
+        if ($actor['role'] === 'branch_manager') { $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id']; }
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        if (!$stmt->rowCount()) aec_fail('Deleted course not found.', 404);
+        $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'course' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], (int)$id]);
+        $db->commit();
+        aec_ok(['id' => $id], 'Course restored.');
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) $db->rollBack();
+        throw $error;
+    }
 }
 
 if ($action === 'create' || $action === 'update' || $action === 'delete') {

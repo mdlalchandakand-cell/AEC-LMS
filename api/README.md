@@ -12,6 +12,7 @@ Target runtime: PHP 8.3+, PDO MySQL, MySQL 8 / compatible MariaDB with InnoDB, H
 - `POST /api/batches.php?action=delete&id={id}` / `restore&id={id}` — soft-delete and restore a batch.
 - `GET /api/batches.php?action=instructors` — branch-aware active instructor directory for batch managers.
 - `POST /api/batches.php?action=enroll&id={batch_id}` / `unenroll&id={batch_id}` — place or remove a student from a batch.
+- `GET /api/batches.php?action=eligible_students&batch_id={id}` — list active course enrollees who are not already in the batch.
 - `GET /api/batches.php?action=students&batch_id={id}` — view the batch roster.
 - `GET /api/batches.php?action=routines` — role-scoped weekly schedule; students see only their enrolled batch routines.
 - `POST /api/batches.php?action=create_routine` — add a day/time/subject/instructor/room slot with server-side overlap validation.

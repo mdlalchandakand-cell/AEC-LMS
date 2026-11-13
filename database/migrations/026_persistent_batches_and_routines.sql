@@ -1,0 +1,81 @@
+-- Persistent academic batches, student placement, and weekly routine scheduling.
+CREATE TABLE IF NOT EXISTS batches (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  course_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  name VARCHAR(160) NOT NULL,
+  batch_code VARCHAR(48) NOT NULL,
+  schedule_label VARCHAR(255) NULL,
+  room_number VARCHAR(120) NULL,
+  instructor_user_id BIGINT UNSIGNED NOT NULL,
+  max_capacity SMALLINT UNSIGNED NOT NULL DEFAULT 35,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  status ENUM('upcoming','ongoing','completed','cancelled') NOT NULL DEFAULT 'upcoming',
+  created_by BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  deleted_at DATETIME NULL,
+  UNIQUE KEY uq_batch_branch_code (branch_id, batch_code),
+  INDEX idx_batches_course_status (course_id, status, deleted_at),
+  INDEX idx_batches_branch_dates (branch_id, start_date, end_date, status),
+  INDEX idx_batches_instructor (instructor_user_id, status),
+  CONSTRAINT fk_batch_course FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_instructor FOREIGN KEY (instructor_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_batch_capacity CHECK (max_capacity > 0),
+  CONSTRAINT chk_batch_date_range CHECK (end_date >= start_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS batch_enrollments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  batch_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  status ENUM('active','cancelled') NOT NULL DEFAULT 'active',
+  enrolled_by BIGINT UNSIGNED NULL,
+  enrolled_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  UNIQUE KEY uq_batch_student (batch_id, user_id),
+  INDEX idx_batch_enrollment_student (user_id, status),
+  INDEX idx_batch_enrollment_branch (branch_id, status),
+  CONSTRAINT fk_batch_enrollment_batch FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_enrollment_student FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_enrollment_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_enrollment_creator FOREIGN KEY (enrolled_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS batch_routine_slots (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  batch_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  day_of_week ENUM('Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday') NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  subject VARCHAR(180) NOT NULL,
+  instructor_user_id BIGINT UNSIGNED NOT NULL,
+  room_number VARCHAR(120) NULL,
+  created_by BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  deleted_at DATETIME NULL,
+  INDEX idx_batch_routine_batch_day (batch_id, day_of_week, start_time, deleted_at),
+  INDEX idx_batch_routine_branch_day (branch_id, day_of_week, start_time, deleted_at),
+  INDEX idx_batch_routine_instructor (instructor_user_id, day_of_week, start_time, deleted_at),
+  CONSTRAINT fk_batch_routine_batch FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_routine_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_routine_instructor FOREIGN KEY (instructor_user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_batch_routine_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_batch_routine_time CHECK (end_time > start_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
+('admin', 'batches.manage', 1),
+('branch_manager', 'batches.manage', 1),
+('teacher', 'batches.manage', 0),
+('assistant_teacher', 'batches.manage', 0),
+('accountant', 'batches.manage', 0),
+('student', 'batches.manage', 0),
+('guardian', 'batches.manage', 0),
+('support_staff', 'batches.manage', 0);

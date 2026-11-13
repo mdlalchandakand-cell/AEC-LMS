@@ -190,7 +190,7 @@ if ($action === 'permanent_delete') {
         if (!$item) aec_fail('Active recycle-bin item not found.', 404);
         aec_recycle_scope($actor, $item);
         $result = aec_recycle_purge($db, $actor, $item);
-        if (!$result['purged']) aec_fail((string)$result['reason'], 409);
+        if (!$result['purged']) { $db->commit(); aec_fail((string)$result['reason'], 409); }
         $db->commit();
         aec_ok(['id' => $id], 'Item permanently deleted.');
     } catch (Throwable $error) {

@@ -89,6 +89,26 @@ function aec_notify_user(
     }
 }
 
+function aec_recycle_bin_record(PDO $db, array $actor, string $entityType, int $entityId, string $title, ?int $branchId, array $snapshot): void {
+    $allowed = ['course','content','batch','exam','cms_post','cms_testimonial'];
+    if (!in_array($entityType, $allowed, true) || $entityId < 1) {
+        throw new InvalidArgumentException('Invalid recycle-bin entity.');
+    }
+    $encoded = json_encode($snapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) throw new RuntimeException('Could not serialize recycle-bin snapshot.');
+    $find = $db->prepare("SELECT id FROM recycle_bin_items WHERE entity_type = ? AND entity_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1");
+    $find->execute([$entityType, $entityId]);
+    $existingId = $find->fetchColumn();
+    if ($existingId) {
+        $db->prepare("UPDATE recycle_bin_items SET title = ?, branch_id = ?, deleted_by = ?, snapshot = ?, deleted_at = NOW(), expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY), purge_error = NULL WHERE id = ?")
+            ->execute([$title, $branchId, (int)$actor['id'], $encoded, (int)$existingId]);
+        return;
+    }
+    $db->prepare("INSERT INTO recycle_bin_items (entity_type, entity_id, title, branch_id, deleted_by, snapshot, status, deleted_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'active', NOW(), DATE_ADD(NOW(), INTERVAL 30 DAY))")
+        ->execute([$entityType, $entityId, $title, $branchId, (int)$actor['id'], $encoded]);
+}
+
 function aec_start_session(): void {
     if (session_status() === PHP_SESSION_ACTIVE) return;
     $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')

@@ -1219,6 +1219,7 @@ try {
         $db->prepare('DELETE FROM payment_refunds WHERE payment_id = ?')->execute([$paymentId]);
         $db->prepare('DELETE FROM course_payments WHERE id = ?')->execute([$paymentId]);
     }
+    if (isset($guardianEmail) && is_string($guardianEmail)) $db->prepare("DELETE FROM account_action_attempts WHERE action = 'guardian_link' AND email = ?")->execute([$guardianEmail]);
     if ($guardianId !== null && $studentId !== null) {
         $db->prepare('DELETE FROM guardian_student_links WHERE guardian_user_id = ? OR student_user_id = ?')->execute([$guardianId, $studentId]);
         $db->prepare('DELETE FROM notifications WHERE recipient_user_id IN (?, ?) OR sender_user_id IN (?, ?)')->execute([$guardianId, $studentId, $guardianId, $studentId]);

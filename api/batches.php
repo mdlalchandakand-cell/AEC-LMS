@@ -188,6 +188,22 @@ if ($action === 'enroll' || $action === 'unenroll') {
     }
 }
 
+if ($action === 'instructors') {
+    aec_method(['GET']);
+    $actor = aec_require_permission('batches.manage');
+    aec_assert_active_branch($db, $actor);
+    $sql = "SELECT id, name, email, role, branch_id FROM users
+        WHERE is_active = 1 AND role IN ('teacher','assistant_teacher')";
+    $params = [];
+    if ($actor['role'] === 'branch_manager') {
+        $sql .= ' AND (branch_id = ? OR branch_id IS NULL)';
+        $params[] = (int)$actor['branch_id'];
+    }
+    $sql .= ' ORDER BY name';
+    $stmt = $db->prepare($sql); $stmt->execute($params);
+    aec_ok($stmt->fetchAll());
+}
+
 if ($action === 'students') {
     aec_method(['GET']);
     $actor = aec_require_permission('batches.manage');

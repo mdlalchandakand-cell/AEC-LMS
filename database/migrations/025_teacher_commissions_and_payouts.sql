@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS teacher_course_assignments (
   branch_id BIGINT UNSIGNED NULL,
   commission_percentage DECIMAL(5,2) NOT NULL DEFAULT 60.00,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
-  assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  unassigned_at DATETIME NULL,
+  assigned_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  unassigned_at DATETIME(6) NULL,
   assigned_by BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,
@@ -61,3 +61,6 @@ INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
 ('student', 'teacher_commissions.manage', 0),
 ('guardian', 'teacher_commissions.manage', 0),
 ('support_staff', 'teacher_commissions.manage', 0);
+
+-- Preserve sub-second payment review timestamps so assignment-period boundaries are unambiguous.
+ALTER TABLE course_payments MODIFY COLUMN reviewed_at DATETIME(6) NULL;

@@ -40,7 +40,7 @@ There are no production API endpoints yet for reporting, teacher commissions/pay
 
 ### Dashboard areas still using local/demo state
 
-The current `LmsContext.tsx` still initializes legacy/demo records in browser `localStorage`, including lessons, live classes, exam/demo records, payments, attendance, legacy certificate seed records, expenses, tenants, batches, routines, question bank, marksheets, commissions, payout requests, marketing settings and recycle-bin records. The admin and student certificate screens use the persistent PHP API in PR #38 rather than these legacy certificate seeds. Active classroom, exam, question-bank and attendance workflows use the PHP API; CMS settings/posts/testimonials are API-backed after PR #31.
+The current `LmsContext.tsx` still initializes legacy/demo records in browser `localStorage`, including lessons, live classes, exam/demo records, payments, attendance, legacy certificate seed records, expenses, tenants, legacy batches/routines, question bank, marksheets, legacy commissions/payout records, marketing settings and legacy recycle-bin records. Active batch/routine, teacher commission/payout and guardian screens are now API-backed; the recycle-bin module is being replaced with a persistent API workflow in the current release branch. The admin and student certificate screens use the persistent PHP API in PR #38 rather than these legacy certificate seeds. Active classroom, exam, question-bank and attendance workflows use the PHP API; CMS settings/posts/testimonials are API-backed after PR #31.
 
 The following visible modules still depend substantially on context/demo state rather than a complete persistent backend workflow:
 
@@ -49,12 +49,19 @@ The following visible modules still depend substantially on context/demo state r
 - Certificate issuance, student wallet, public verification and audited revocation are merged in PR #38; PHP/MySQL integration and frontend CI passed. Browser E2E and cPanel deployment rehearsal remain release gates.
 - CMS posts, testimonials and website settings are API-backed after PR #31; browser E2E remains.
 - Public admission form and admin inquiry review are API-backed after PR #35; self-service registration, email verification, account creation, enrollment conversion and payment confirmation are not part of this intake flow.
-- Batches and weekly routines now have persistent migration/API/UI, eligible-student placement, branch scoping, active-course access checks, capacity controls and overlap-safe scheduling in the current release branch; browser E2E and cPanel smoke tests remain pending.
+- Batches and weekly routines have persistent migration/API/UI, eligible-student placement, branch scoping, active-course access checks, capacity controls and overlap-safe scheduling merged in PR #8; browser E2E and cPanel smoke tests remain pending.
 - Legacy question-bank fixtures remain in context; active question-bank management is API-backed after PR #28. Persistent marksheet issuance and the admin/student registry UI are implemented on `feature/persistent-marksheet-backend`, but require successful MySQL/HTTP integration and frontend build validation before release.
-- Expenses, reports, teacher commissions and payouts remain incomplete; persistent in-app notifications are API-backed, while email/SMS delivery remains incomplete
-- Library, hostel, transport and SaaS administration
+- Teacher commissions and payouts are API-backed after PR #8, including versioned assignment periods, refund-adjusted earnings, payout reservations, accountant approval and confirmed external-reference settlement. Branch-manager commission administration remains disabled pending complete branch-scoped financial review. Expenses and reports remain incomplete; persistent in-app notifications are API-backed, while email/SMS delivery remains incomplete
+- Library, hostel, transport and SaaS administration remain incomplete.
+- Persistent recycle bin is in the current branch with migration 029: course/content/batch/exam/CMS snapshots, restore, dependency-safe permanent deletion, 30-day expiry purge, audit log and branch-scoped access. Do not mark it released until migration/API/frontend/MySQL integration/CodeQL/cPanel ZIP checks pass.
 
 The legacy `PaymentManager` also remains in the codebase; the active payment routes should continue to use the API-backed `PaymentApiPanel`, not the local-state payment workflow. Product orders now use a persisted cash-on-delivery queue merged in PR #47; premium e-book payment references are not unlocked until admin verification. The public learning and storefront pages now include private PDF upload and entitlement-checked streaming merged in PR #47; actual e-book PDF assets must still be uploaded and browser E2E validation remains. Google sign-in remains intentionally disabled until real OAuth token verification is implemented. No generative-AI runtime dependency is required for these LMS workflows; the functionality runs through the LMS application and its own APIs.
+
+### Recent persistent backend work
+
+- Guardian/student consent portal merged in PR #6.
+- Teacher commission/payout and academic batch/routine workflows merged in PR #8.
+- Persistent recycle bin is being validated in the current release branch; the legacy LmsContext recycle-bin seed data is not the production source of truth.
 
 ### Security and operations still required
 

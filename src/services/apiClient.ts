@@ -362,6 +362,7 @@ class ApiService {
     update: (id: number, data: Record<string, unknown>) => this.request<{ id: number }>(`/batches.php?action=update&id=${encodeURIComponent(String(id))}`, { method: 'POST', body: JSON.stringify(data) }),
     delete: (id: number) => this.request<{ id: number }>(`/batches.php?action=delete&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
     restore: (id: number) => this.request<{ id: number }>(`/batches.php?action=restore&id=${encodeURIComponent(String(id))}`, { method: 'POST' }),
+    getInstructors: () => this.request<Array<Record<string, unknown>>>('/batches.php?action=instructors'),
     getStudents: (batchId: number) => this.request<Array<Record<string, unknown>>>(`/batches.php?action=students&batch_id=${encodeURIComponent(String(batchId))}`),
     enroll: (batchId: number, studentUserId: number) => this.request<{ batch_id: number; student_user_id: number }>(`/batches.php?action=enroll&id=${encodeURIComponent(String(batchId))}`, { method: 'POST', body: JSON.stringify({ student_user_id: studentUserId }) }),
     unenroll: (batchId: number, studentUserId: number) => this.request<{ batch_id: number; student_user_id: number }>(`/batches.php?action=unenroll&id=${encodeURIComponent(String(batchId))}`, { method: 'POST', body: JSON.stringify({ student_user_id: studentUserId }) }),

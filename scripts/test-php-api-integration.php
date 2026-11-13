@@ -198,6 +198,8 @@ $questionBankId = null;
 $cmsPostId = null;
 $cmsTestimonialId = null;
 $paymentId = null;
+$batchId = null;
+$routineId = null;
 $certificateId = null;
 $admissionApplicationId = null;
 $managedStudentId = null;
@@ -883,6 +885,50 @@ try {
     $verified = expect_status(api_request($base, '/api/payments.php?action=verify&id=' . $paymentId, 'POST', [], $cookie, $csrf), 200, 'Admin verifies payment');
     check(($verified['data']['course_access_activated'] ?? false) === true, 'Full verified payment did not activate course access.');
 
+    // Persistent batch and weekly routine workflow.
+    $batch = expect_status(api_request($base, '/api/batches.php?action=create', 'POST', [
+        'course_id' => $courseIds[0], 'name' => 'API Integration Batch ' . $suffix,
+        'batch_code' => 'TST-' . strtoupper($suffix), 'schedule' => 'Sun 10:00-11:00',
+        'room_number' => 'Test Room 1', 'instructor_user_id' => $teacherId, 'max_capacity' => 1,
+        'start_date' => '2026-11-15', 'end_date' => '2027-03-01', 'status' => 'upcoming',
+    ], $cookie, $csrf), 201, 'Admin creates a persistent academic batch');
+    $batchId = (int)$batch['data']['id'];
+    expect_status(api_request($base, '/api/batches.php?action=create', 'POST', [
+        'course_id' => $courseIds[0], 'name' => 'Duplicate API Integration Batch ' . $suffix,
+        'batch_code' => 'TST-' . strtoupper($suffix), 'schedule' => 'Sun 10:00-11:00',
+        'room_number' => 'Test Room 2', 'instructor_user_id' => $teacherId, 'max_capacity' => 1,
+        'start_date' => '2026-11-15', 'end_date' => '2027-03-01', 'status' => 'upcoming',
+    ], $cookie, $csrf), 409, 'Batch code uniqueness is enforced within the branch');
+    $eligibleBatchStudents = expect_status(api_request($base, '/api/batches.php?action=eligible_students&batch_id=' . $batchId, 'GET', null, $cookie), 200, 'Admin loads students eligible for batch placement');
+    check(count(array_filter($eligibleBatchStudents['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $studentId)) === 1, 'Eligible student directory omitted the active course enrollee.');
+    $routine = expect_status(api_request($base, '/api/batches.php?action=create_routine', 'POST', [
+        'batch_id' => $batchId, 'day_of_week' => 'Sunday', 'start_time' => '10:00', 'end_time' => '11:00',
+        'subject' => 'Grammar Practice', 'room_number' => 'Test Room 1', 'instructor_user_id' => $teacherId,
+    ], $cookie, $csrf), 201, 'Admin creates a weekly class routine slot');
+    $routineId = (int)$routine['data']['id'];
+    expect_status(api_request($base, '/api/batches.php?action=create_routine', 'POST', [
+        'batch_id' => $batchId, 'day_of_week' => 'Sunday', 'start_time' => '10:30', 'end_time' => '11:30',
+        'subject' => 'Overlapping Grammar', 'room_number' => 'Test Room 2', 'instructor_user_id' => $teacherId,
+    ], $cookie, $csrf), 409, 'Routine scheduler rejects overlapping instructor bookings');
+    expect_status(api_request($base, '/api/batches.php?action=enroll&id=' . $batchId, 'POST', [
+        'student_user_id' => $studentId,
+    ], $cookie, $csrf), 201, 'Admin enrolls an already-enrolled student into the batch');
+    $eligibleAfterPlacement = expect_status(api_request($base, '/api/batches.php?action=eligible_students&batch_id=' . $batchId, 'GET', null, $cookie), 200, 'Eligible student directory refreshes after placement');
+    check(!in_array($studentId, array_map(static fn(array $row): int => (int)$row['id'], $eligibleAfterPlacement['data'] ?? []), true), 'Already-placed student remained in the eligible student directory.');
+    $batchStudents = expect_status(api_request($base, '/api/batches.php?action=students&batch_id=' . $batchId, 'GET', null, $cookie), 200, 'Admin views batch student roster');
+    check(count($batchStudents['data'] ?? []) === 1 && (int)$batchStudents['data'][0]['user_id'] === $studentId, 'Batch roster did not include the enrolled student.');
+    $studentBatches = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student views own assigned batches');
+    check(in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatches['data'] ?? []), true), 'Student could not see their assigned batch.');
+    $studentRoutines = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student views own batch routine');
+    check(count(array_filter($studentRoutines['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Student could not see their assigned routine.');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch');
+    $studentBatchesAfterDelete = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student batch list hides deleted batches');
+    check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterDelete['data'] ?? []), true), 'Deleted batch remained visible to students.');
+    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin restores a batch');
+    $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
+    check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
+
+
     // Persistent teacher commission: verified revenue accrues commission, payout reservations prevent overspending.
     $adminCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin reads teacher commission summary');
     check((float)($adminCommissionSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Commission was not calculated as 60% of verified net course revenue.');
@@ -1197,6 +1243,10 @@ try {
     $studentInboxAfterRefund = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives refund notification');
     check(count(array_filter($studentInboxAfterRefund['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Payment refund recorded')) === 1, 'Refund recording did not notify the student.');
     check(($partialRefund['data']['course_access_cancelled'] ?? false) === true, 'Course access was not cancelled after net paid fell below the course fee.');
+    $studentBatchesAfterRefund = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student batch list respects revoked course access after refund');
+    check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterRefund['data'] ?? []), true), 'Refunded student retained access to a course batch.');
+    $studentRoutinesAfterRefund = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student routine list respects revoked course access after refund');
+    check(count(array_filter($studentRoutinesAfterRefund['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 0, 'Refunded student retained access to a course routine.');
     $refundRecord = $db->prepare('SELECT amount, refund_reference FROM payment_refunds WHERE payment_id = ? ORDER BY id ASC LIMIT 1');
     $refundRecord->execute([$paymentId]);
     $partialRefundRow = $refundRecord->fetch();
@@ -1379,6 +1429,11 @@ try {
     foreach (array_filter([$contentId, $draftCoursePreviewContentId, $paidContentId]) as $cleanupContentId) {
         $db->prepare('DELETE FROM course_content WHERE content_item_id = ?')->execute([$cleanupContentId]);
         $db->prepare('DELETE FROM content_items WHERE id = ?')->execute([$cleanupContentId]);
+    }
+    if ($batchId !== null) {
+        $db->prepare('DELETE FROM batch_routine_slots WHERE batch_id = ?')->execute([$batchId]);
+        $db->prepare('DELETE FROM batch_enrollments WHERE batch_id = ?')->execute([$batchId]);
+        $db->prepare('DELETE FROM batches WHERE id = ?')->execute([$batchId]);
     }
     if ($teacherId !== null) $db->prepare('DELETE FROM teacher_course_assignments WHERE teacher_user_id = ?')->execute([$teacherId]);
     $cleanupCourseIds = array_values(array_filter([...$courseIds, $draftCourseId, $branchManagedCourseId]));

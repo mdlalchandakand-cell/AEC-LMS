@@ -1183,12 +1183,17 @@ try {
     ], $branchManagerCookie, $branchManagerCsrf), 200, 'Branch manager records a provider-confirmed partial refund');
     check(($partialRefund['data']['payment_status'] ?? '') === 'verified', 'Partial refund unexpectedly changed the payment status.');
     check(($partialRefund['data']['remaining_refundable'] ?? '') === '750.00', 'Partial refund remaining balance is incorrect.');
-    $commissionAfterPartialRefund = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Commission summary reflects completed partial refunds');
+    $commissionAdminCookie = null;
+    $commissionAdminLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', [
+        'email' => $adminEmail, 'password' => $adminPassword,
+    ], $commissionAdminCookie), 200, 'Admin re-login to review refund-adjusted teacher commissions');
+    $commissionAdminCsrf = $commissionAdminLogin['data']['csrf_token'] ?? null;
+    $commissionAfterPartialRefund = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $commissionAdminCookie), 200, 'Commission summary reflects completed partial refunds');
     check((float)($commissionAfterPartialRefund['data']['totals']['gross_commission'] ?? 0) === 450.0
         && (float)($commissionAfterPartialRefund['data']['totals']['overpaid_commission'] ?? 0) === 50.0,
         'Partial refunds did not reduce commission and show the already-paid recovery amount.');
-    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $secondPayoutRequestId, 'POST', ['decision' => 'approve'], $cookie, $csrf), 409, 'Refund-adjusted balance blocks approval of an overdrawn pending payout');
-    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $secondPayoutRequestId, 'POST', ['decision' => 'reject', 'reason' => 'Balance reduced after refund'], $cookie, $csrf), 200, 'Admin rejects the now-unfunded payout reservation');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $secondPayoutRequestId, 'POST', ['decision' => 'approve'], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Refund-adjusted balance blocks approval of an overdrawn pending payout');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=review_payout&id=' . $secondPayoutRequestId, 'POST', ['decision' => 'reject', 'reason' => 'Balance reduced after refund'], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin rejects the now-unfunded payout reservation');
     $studentInboxAfterRefund = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives refund notification');
     check(count(array_filter($studentInboxAfterRefund['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Payment refund recorded')) === 1, 'Refund recording did not notify the student.');
     check(($partialRefund['data']['course_access_cancelled'] ?? false) === true, 'Course access was not cancelled after net paid fell below the course fee.');

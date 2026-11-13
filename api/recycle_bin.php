@@ -144,7 +144,8 @@ if ($action === 'list') {
 
     $sql = "SELECT r.id, r.entity_type, r.entity_id, r.title, r.branch_id, r.status,
         r.deleted_at, r.expires_at, r.purge_error, COALESCE(u.name, 'System / previous deletion') AS deleted_by,
-        GREATEST(0, DATEDIFF(r.expires_at, CURDATE())) AS retention_days_left
+        GREATEST(0, DATEDIFF(r.expires_at, CURDATE())) AS retention_days_left,
+        (r.expires_at > NOW()) AS can_restore, (r.expires_at <= NOW()) AS can_purge
         FROM recycle_bin_items r LEFT JOIN users u ON u.id = r.deleted_by
         WHERE r.status = 'active'";
     $params = [];

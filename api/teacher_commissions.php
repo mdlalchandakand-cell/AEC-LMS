@@ -25,20 +25,18 @@ function aec_commission_audit(PDO $db, array $actor, string $event, int $entityI
 }
 
 function aec_commission_gross_cents(PDO $db, int $teacherId): int {
-    $stmt = $db->prepare("SELECT COALESCE(SUM(ROUND(revenue.net_revenue * a.commission_percentage, 0)), 0)
-        FROM teacher_course_assignments a
-        JOIN courses c ON c.id = a.course_id
-        JOIN (
-          SELECT p.course_id, p.branch_id,
-            SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)) * 100 AS net_revenue
+    $stmt = $db->prepare("SELECT COALESCE(SUM(ROUND((
+          SELECT COALESCE(SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)), 0)
           FROM course_payments p
           LEFT JOIN (
             SELECT payment_id, SUM(amount) AS refunded_amount
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
-          WHERE p.status IN ('verified','refunded')
-          GROUP BY p.course_id, p.branch_id
-        ) revenue ON revenue.course_id = c.id AND revenue.branch_id <=> a.branch_id
+          WHERE p.course_id = a.course_id AND p.status IN ('verified','refunded')
+            AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)
+        ) * 100 * a.commission_percentage / 100, 0)), 0)
+        FROM teacher_course_assignments a
+        JOIN courses c ON c.id = a.course_id
         WHERE a.teacher_user_id = ? AND a.is_active = 1 AND c.deleted_at IS NULL");
     $stmt->execute([$teacherId]);
     return max(0, (int)round((float)$stmt->fetchColumn()));
@@ -89,23 +87,27 @@ if ($action === 'summary') {
     }
     $stmt = $db->prepare("SELECT a.id, a.teacher_user_id, t.name AS teacher_name, c.id AS course_id, c.title AS course_title,
         a.commission_percentage,
-        (SELECT COUNT(*) FROM course_enrollments ce WHERE ce.course_id = c.id AND ce.status IN ('active','completed')) AS total_enrolled_students,
-        COALESCE(revenue.net_revenue, 0) AS total_course_revenue,
-        ROUND(COALESCE(revenue.net_revenue, 0) * a.commission_percentage / 100, 2) AS gross_commission
-        FROM teacher_course_assignments a
-        JOIN users t ON t.id = a.teacher_user_id
-        JOIN courses c ON c.id = a.course_id
-        LEFT JOIN (
-          SELECT p.course_id, p.branch_id,
-            SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)) AS net_revenue
+        (SELECT COUNT(*) FROM course_enrollments ce WHERE ce.course_id = c.id AND ce.status IN ('active','completed')
+          AND (a.branch_id IS NULL OR ce.branch_id = a.branch_id)) AS total_enrolled_students,
+        (SELECT COALESCE(SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)), 0)
           FROM course_payments p
           LEFT JOIN (
             SELECT payment_id, SUM(amount) AS refunded_amount
             FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
           ) r ON r.payment_id = p.id
-          WHERE p.status IN ('verified','refunded')
-          GROUP BY p.course_id, p.branch_id
-        ) revenue ON revenue.course_id = c.id AND revenue.branch_id <=> a.branch_id
+          WHERE p.course_id = c.id AND p.status IN ('verified','refunded')
+            AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)) AS total_course_revenue,
+        ROUND((SELECT COALESCE(SUM(GREATEST(p.amount - COALESCE(r.refunded_amount, 0), 0)), 0)
+          FROM course_payments p
+          LEFT JOIN (
+            SELECT payment_id, SUM(amount) AS refunded_amount
+            FROM payment_refunds WHERE status = 'completed' GROUP BY payment_id
+          ) r ON r.payment_id = p.id
+          WHERE p.course_id = c.id AND p.status IN ('verified','refunded')
+            AND (a.branch_id IS NULL OR p.branch_id = a.branch_id)) * a.commission_percentage / 100, 2) AS gross_commission
+        FROM teacher_course_assignments a
+        JOIN users t ON t.id = a.teacher_user_id
+        JOIN courses c ON c.id = a.course_id
         {$where}
         ORDER BY t.name, c.title");
     $stmt->execute($params);

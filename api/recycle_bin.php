@@ -76,7 +76,7 @@ function aec_recycle_mark_purged(PDO $db, array $actor, array $item, string $rea
 }
 
 function aec_recycle_purge(PDO $db, array $actor, array $item): array {
-    if (strtotime((string)$item['expires_at']) > time()) {
+    if (empty($item['retention_elapsed'])) {
         return ['purged' => false, 'reason' => 'The 30-day retention period has not elapsed.'];
     }
 
@@ -164,11 +164,11 @@ if ($action === 'restore') {
 
     $db->beginTransaction();
     try {
-        $stmt = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' LIMIT 1 FOR UPDATE");
+        $stmt = $db->prepare("SELECT *, (expires_at > NOW()) AS can_restore FROM recycle_bin_items WHERE id = ? AND status = 'active' LIMIT 1 FOR UPDATE");
         $stmt->execute([$id]); $item = $stmt->fetch();
         if (!$item) aec_fail('Active recycle-bin item not found.', 404);
         aec_recycle_scope($actor, $item);
-        if (strtotime((string)$item['expires_at']) <= time()) aec_fail('The 30-day retention period has expired; this item can no longer be restored.', 409);
+        if (!(bool)$item['can_restore']) aec_fail('The 30-day retention period has expired; this item can no longer be restored.', 409);
 
         $snapshot = aec_recycle_snapshot($item);
         $entityId = (int)$item['entity_id'];
@@ -224,10 +224,10 @@ if ($action === 'permanent_delete') {
 
     $db->beginTransaction();
     try {
-        $stmt = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' LIMIT 1 FOR UPDATE");
+        $stmt = $db->prepare("SELECT *, (expires_at <= NOW()) AS retention_elapsed FROM recycle_bin_items WHERE id = ? AND status = 'active' LIMIT 1 FOR UPDATE");
         $stmt->execute([$id]); $item = $stmt->fetch();
         if (!$item) aec_fail('Active recycle-bin item not found.', 404);
-        if (strtotime((string)$item['expires_at']) > time()) aec_fail('Permanent deletion is available only after the 30-day retention period.', 409);
+        if (!(bool)$item['retention_elapsed']) aec_fail('Permanent deletion is available only after the 30-day retention period.', 409);
         $result = aec_recycle_purge($db, $actor, $item);
         if (!$result['purged']) {
             $db->commit();
@@ -254,9 +254,9 @@ if ($action === 'purge_expired') {
     foreach ($itemIds as $itemId) {
         $db->beginTransaction();
         try {
-            $stmt = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' FOR UPDATE");
+            $stmt = $db->prepare("SELECT *, (expires_at <= NOW()) AS retention_elapsed FROM recycle_bin_items WHERE id = ? AND status = 'active' FOR UPDATE");
             $stmt->execute([$itemId]); $item = $stmt->fetch();
-            if (!$item || strtotime((string)$item['expires_at']) > time()) { $db->commit(); continue; }
+            if (!$item || !(bool)$item['retention_elapsed']) { $db->commit(); continue; }
             $result = aec_recycle_purge($db, $actor, $item);
             if ($result['purged']) $purged++;
             else $blocked[] = ['id' => $itemId, 'title' => $item['title'], 'reason' => $result['reason']];

@@ -96,20 +96,20 @@ class LaravelApiService {
 
   public liveClasses = {
     list: () => this.request<{ items: unknown[] }>('/api/v1/live-classes'),
-    create: (payload: Record<string, unknown>) => this.request('/api/v1/live-classes', { method: 'POST', body: JSON.stringify(payload) }),
+    create: (payload: Record<string, unknown>) => this.request<{ id: number }>('/api/v1/live-classes', { method: 'POST', body: JSON.stringify(payload) }),
     update: (id: number, payload: Record<string, unknown>) => this.request('/api/v1/live-classes/' + id, { method: 'PATCH', body: JSON.stringify(payload) }),
     cancel: (id: number, reason?: string) => this.request('/api/v1/live-classes/' + id + '/cancel', { method: 'POST', body: JSON.stringify({ reason }) }),
   };
 
   public exams = {
     list: () => this.request<{ items: unknown[] }>('/api/v1/exams'),
-    getById: (id: number) => this.request('/api/v1/exams/' + id),
+    getById: (id: number) => this.request<Record<string, unknown>>('/api/v1/exams/' + id),
     attempts: (examId?: number) => this.request<{ items: unknown[] }>('/api/v1/exams/attempts' + (examId ? '?exam_id=' + encodeURIComponent(String(examId)) : '')),
     start: (id: number) => this.request('/api/v1/exams/' + id + '/start', { method: 'POST' }),
     saveAnswers: (attemptId: number, answers: Record<string, number>) => this.request('/api/v1/exams/attempts/' + attemptId + '/answers', { method: 'POST', body: JSON.stringify({ answers }) }),
     submit: (attemptId: number, answers: Record<string, number>) => this.request('/api/v1/exams/attempts/' + attemptId + '/submit', { method: 'POST', body: JSON.stringify({ answers }) }),
-    create: (payload: Record<string, unknown>) => this.request('/api/v1/exams', { method: 'POST', body: JSON.stringify(payload) }),
-    update: (id: number, payload: Record<string, unknown>) => this.request('/api/v1/exams/' + id, { method: 'PATCH', body: JSON.stringify(payload) }),
+    create: (payload: Record<string, unknown>) => this.request<{ id: number }>('/api/v1/exams', { method: 'POST', body: JSON.stringify(payload) }),
+    update: (id: number, payload: Record<string, unknown>) => this.request<{ id: number }>('/api/v1/exams/' + id, { method: 'PATCH', body: JSON.stringify(payload) }),
     saveQuestions: (id: number, questions: unknown[]) => this.request('/api/v1/exams/' + id + '/questions', { method: 'PUT', body: JSON.stringify({ questions }) }),
     archive: (id: number) => this.request('/api/v1/exams/' + id, { method: 'DELETE' }),
   };

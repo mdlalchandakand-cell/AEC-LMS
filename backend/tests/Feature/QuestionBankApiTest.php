@@ -314,4 +314,76 @@ class QuestionBankApiTest extends TestCase
 
         $this->getJson('/api/v1/question-bank')->assertForbidden();
     }
+    public function test_question_bank_import_rejects_exam_outside_branch_manager_scope(): void
+    {
+        $managerId = $this->createUser('manager@example.test', 'branch_manager');
+        DB::table('users')->where('id', $managerId)->update(['branch_id' => 10]);
+        $this->grant('branch_manager', 'exams.manage');
+        $this->grant('branch_manager', 'question_bank.manage');
+
+        $courseId = (int) DB::table('courses')->insertGetId([
+            'branch_id' => 20,
+            'title' => 'Other Branch Course',
+            'slug' => 'other-branch-course',
+            'status' => 'published',
+            'created_by' => $managerId,
+        ]);
+        $examId = (int) DB::table('exams')->insertGetId([
+            'course_id' => $courseId,
+            'title' => 'Other Branch Draft Exam',
+            'total_marks' => '0.00',
+            'status' => 'draft',
+        ]);
+        $questionId = (int) DB::table('question_bank_items')->insertGetId([
+            'category' => 'Grammar',
+            'question_text' => 'A reusable question',
+            'options' => json_encode(['A', 'B']),
+            'correct_option_index' => 0,
+            'marks' => '1.00',
+            'status' => 'published',
+            'created_by' => $managerId,
+            'created_at' => now(),
+        ]);
+
+        $this->login('manager@example.test');
+        $this->postJson('/api/v1/question-bank/add-to-exam', [
+            'exam_id' => $examId,
+            'question_bank_ids' => [$questionId],
+        ])->assertNotFound();
+
+        $this->assertSame(0, DB::table('exam_questions')->where('exam_id', $examId)->count());
+    }
+
+    public function test_question_bank_import_validates_all_items_before_writing_any_questions(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin');
+        $this->grant('admin', 'question_bank.manage');
+        $this->grant('admin', 'exams.manage');
+        $questionId = (int) DB::table('question_bank_items')->insertGetId([
+            'category' => 'Grammar',
+            'question_text' => 'Valid question',
+            'options' => json_encode(['A', 'B']),
+            'correct_option_index' => 0,
+            'marks' => '1.00',
+            'status' => 'published',
+            'created_by' => $adminId,
+            'created_at' => now(),
+        ]);
+        $examId = (int) DB::table('exams')->insertGetId([
+            'title' => 'Atomic Import Exam',
+            'total_marks' => '0.00',
+            'status' => 'draft',
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/question-bank/add-to-exam', [
+            'exam_id' => $examId,
+            'question_bank_ids' => [$questionId, 99999],
+        ])->assertNotFound();
+
+        $this->assertSame(0, DB::table('exam_questions')->where('exam_id', $examId)->count());
+        $this->assertSame(0, DB::table('exam_question_bank_sources')->where('exam_id', $examId)->count());
+        $this->assertDatabaseHas('exams', ['id' => $examId, 'total_marks' => '0.00']);
+    }
+
 }

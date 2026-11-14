@@ -86,6 +86,15 @@ class RecycleBinApiTest extends TestCase
             $table->foreign('course_id')->references('id')->on('courses');
         });
 
+        Schema::create('course_lesson_progress', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('content_item_id');
+            $table->foreign('course_id')->references('id')->on('courses');
+            $table->foreign('content_item_id')->references('id')->on('content_items');
+        });
+
         Schema::create('recycle_bin_items', function (Blueprint $table): void {
             $table->id();
             $table->string('entity_type', 40);
@@ -305,6 +314,98 @@ class RecycleBinApiTest extends TestCase
         $this->assertDatabaseHas('courses', ['id' => $linkedCourse]);
         $this->assertDatabaseHas('recycle_bin_items', ['id' => $safeItem, 'status' => 'purged']);
         $this->assertDatabaseHas('recycle_bin_items', ['id' => $linkedItem, 'status' => 'active']);
+    }
+
+    public function test_permanent_delete_retains_course_when_lesson_progress_exists(): void
+    {
+        $this->createUser('admin@example.test', 'super_admin');
+        $courseId = $this->createCourse();
+        $contentId = (int) DB::table('content_items')->insertGetId([
+            'title' => 'Lesson history',
+            'content_type' => 'lesson',
+            'status' => 'published',
+            'created_by' => 1,
+            'deleted_at' => null,
+            'updated_at' => now(),
+        ]);
+        $itemId = $this->createRecycleItem('course', $courseId, 10, 31);
+        DB::table('course_lesson_progress')->insert([
+            'user_id' => 1,
+            'course_id' => $courseId,
+            'content_item_id' => $contentId,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/recycle-bin/' . $itemId . '/permanent-delete')
+            ->assertStatus(409);
+
+        $this->assertDatabaseHas('courses', ['id' => $courseId]);
+        $this->assertDatabaseHas('recycle_bin_items', ['id' => $itemId, 'status' => 'active']);
+    }
+
+    public function test_permanent_delete_retains_content_when_lesson_progress_exists(): void
+    {
+        $this->createUser('admin@example.test', 'super_admin');
+        $courseId = $this->createCourse();
+        $contentId = (int) DB::table('content_items')->insertGetId([
+            'title' => 'Lesson with history',
+            'content_type' => 'lesson',
+            'status' => 'published',
+            'created_by' => 1,
+            'deleted_at' => now()->subDays(31),
+            'updated_at' => now()->subDays(31),
+        ]);
+        $itemId = $this->createRecycleItem('content', $contentId, 10, 31);
+        DB::table('course_lesson_progress')->insert([
+            'user_id' => 1,
+            'course_id' => $courseId,
+            'content_item_id' => $contentId,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/recycle-bin/' . $itemId . '/permanent-delete')
+            ->assertStatus(409);
+
+        $this->assertDatabaseHas('content_items', ['id' => $contentId]);
+        $this->assertDatabaseHas('recycle_bin_items', ['id' => $itemId, 'status' => 'active']);
+    }
+
+    public function test_branch_manager_cannot_restore_a_global_recycle_bin_item(): void
+    {
+        $this->createUser('manager@example.test', 'branch_manager', 10);
+        $courseId = (int) DB::table('courses')->insertGetId([
+            'title' => 'Global deleted course',
+            'slug' => 'global-deleted-course',
+            'price' => '1000.00',
+            'status' => 'draft',
+            'branch_id' => null,
+            'created_by' => 1,
+            'deleted_at' => now()->subDays(2),
+            'updated_at' => now()->subDays(2),
+        ]);
+        $itemId = (int) DB::table('recycle_bin_items')->insertGetId([
+            'entity_type' => 'course',
+            'entity_id' => $courseId,
+            'title' => 'Global deleted course',
+            'branch_id' => null,
+            'deleted_by' => null,
+            'snapshot' => json_encode(['status' => 'published']),
+            'status' => 'active',
+            'deleted_at' => now()->subDays(2),
+            'expires_at' => now()->addDays(28),
+            'created_at' => now()->subDays(2),
+        ]);
+        DB::table('role_permissions')->insert([
+            'role' => 'branch_manager',
+            'permission_key' => 'recycle_bin.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('manager@example.test');
+
+        $this->postJson('/api/v1/recycle-bin/' . $itemId . '/restore')->assertForbidden();
+
+        $this->assertDatabaseHas('courses', ['id' => $courseId, 'deleted_at' => now()->subDays(2)]);
+        $this->assertDatabaseHas('recycle_bin_items', ['id' => $itemId, 'status' => 'active']);
     }
 
     public function test_permanent_delete_retains_course_when_foreign_key_references_exist(): void

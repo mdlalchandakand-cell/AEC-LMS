@@ -257,6 +257,291 @@ class PaymentController extends Controller
         return intdiv($cents, 100) . '.' . str_pad((string) ($cents % 100), 2, '0', STR_PAD_LEFT);
     }
 
+    public function verify(Request $request, int $payment): JsonResponse
+    {
+        return $this->reviewPayment($request, $payment, false, null);
+    }
+
+    public function reject(Request $request, int $payment): JsonResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:1', 'max:500'],
+        ]);
+
+        return $this->reviewPayment($request, $payment, true, trim($validated['reason']));
+    }
+
+    private function reviewPayment(Request $request, int $paymentId, bool $reject, ?string $reason): JsonResponse
+    {
+        $actor = $request->user();
+        if (!LmsPermission::allows($actor, 'payments.manage')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to manage payments.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        if ($actor->role === 'branch_manager' && (!$actor->branch_id || !DB::table('branches')
+            ->where('id', $actor->branch_id)
+            ->where('is_active', 1)
+            ->exists())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is not assigned to an active branch.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        try {
+            $result = DB::transaction(function () use ($request, $actor, $paymentId, $reject, $reason): array {
+                $payment = DB::table('course_payments as payments')
+                    ->join('courses', 'courses.id', '=', 'payments.course_id')
+                    ->join('users as students', 'students.id', '=', 'payments.user_id')
+                    ->where('payments.id', $paymentId)
+                    ->select([
+                        'payments.*',
+                        'courses.title as course_title',
+                        'courses.price as course_price',
+                        'students.branch_id as student_branch_id',
+                    ])
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$payment || ($actor->role === 'branch_manager'
+                    && (int) $payment->branch_id !== (int) $actor->branch_id)) {
+                    return ['error' => 'not_found'];
+                }
+
+                if ($payment->status !== 'pending') {
+                    return ['error' => 'not_pending'];
+                }
+
+                if ($reject) {
+                    DB::table('course_payments')->where('id', $paymentId)->update([
+                        'status' => 'rejected',
+                        'reviewed_at' => now(),
+                        'reviewed_by' => (int) $actor->id,
+                        'rejection_reason' => $reason,
+                    ]);
+
+                    $this->auditPayment($request, $actor->id, 'payment.rejected', $paymentId, [
+                        'reason' => $reason,
+                    ]);
+                    $this->notifyPaymentStudent(
+                        (int) $payment->user_id,
+                        (int) $actor->id,
+                        'Payment rejected',
+                        'Your payment for ' . $payment->course_title . ' was rejected. Reason: ' . $reason,
+                        'পেমেন্ট প্রত্যাখ্যান করা হয়েছে',
+                        'আপনার ' . $payment->course_title . ' কোর্সের পেমেন্ট প্রত্যাখ্যান করা হয়েছে। কারণ: ' . $reason,
+                        'warning'
+                    );
+
+                    return ['rejected' => true];
+                }
+
+                DB::table('course_payments')->where('id', $paymentId)->update([
+                    'status' => 'verified',
+                    'reviewed_at' => now(),
+                    'reviewed_by' => (int) $actor->id,
+                    'rejection_reason' => null,
+                ]);
+
+                $clearingCode = $payment->payment_method === 'Bank Transfer'
+                    ? 'ASSET_BANK_CLEARING'
+                    : 'ASSET_BKASH_NAGAD_CLEARING';
+
+                $debitAccount = DB::table('accounting_accounts')
+                    ->where('account_code', $clearingCode)
+                    ->where('is_active', 1)
+                    ->value('id');
+                $creditAccount = DB::table('accounting_accounts')
+                    ->where('account_code', 'INCOME_TUITION')
+                    ->where('is_active', 1)
+                    ->value('id');
+
+                if (!$debitAccount || !$creditAccount) {
+                    throw new \RuntimeException('Required accounting accounts are missing.');
+                }
+
+                $reference = 'PAY-' . str_pad((string) $paymentId, 10, '0', STR_PAD_LEFT);
+                $ledgerId = (int) DB::table('ledger_transactions')->insertGetId([
+                    'payment_id' => $paymentId,
+                    'refund_id' => null,
+                    'reference' => $reference,
+                    'description' => 'Verified course fee: ' . $payment->course_id,
+                    'created_by' => (int) $actor->id,
+                    'created_at' => now(),
+                ]);
+
+                DB::table('ledger_entries')->insert([
+                    [
+                        'transaction_id' => $ledgerId,
+                        'account_id' => (int) $debitAccount,
+                        'debit' => $payment->amount,
+                        'credit' => '0.00',
+                        'currency' => $payment->currency,
+                        'created_at' => now(),
+                    ],
+                    [
+                        'transaction_id' => $ledgerId,
+                        'account_id' => (int) $creditAccount,
+                        'debit' => '0.00',
+                        'credit' => $payment->amount,
+                        'currency' => $payment->currency,
+                        'created_at' => now(),
+                    ],
+                ]);
+
+                $refunds = DB::table('payment_refunds')
+                    ->select('payment_id')
+                    ->selectRaw('SUM(amount) AS refunded_amount')
+                    ->where('status', 'completed')
+                    ->groupBy('payment_id');
+
+                $verifiedPayments = DB::table('course_payments as payments')
+                    ->leftJoinSub($refunds, 'refunds', function ($join): void {
+                        $join->on('refunds.payment_id', '=', 'payments.id');
+                    })
+                    ->where('payments.user_id', $payment->user_id)
+                    ->where('payments.course_id', $payment->course_id)
+                    ->whereIn('payments.status', ['verified', 'refunded'])
+                    ->select('payments.amount')
+                    ->selectRaw('COALESCE(refunds.refunded_amount, 0) AS refunded_amount')
+                    ->get();
+
+                $paidCents = 0;
+                foreach ($verifiedPayments as $verifiedPayment) {
+                    $paidCents += max(
+                        0,
+                        $this->moneyToCents((string) $verifiedPayment->amount)
+                        - $this->moneyToCents((string) $verifiedPayment->refunded_amount)
+                    );
+                }
+
+                $courseFeeCents = $this->moneyToCents((string) $payment->course_price);
+                $accessActivated = $courseFeeCents > 0 && $paidCents >= $courseFeeCents;
+
+                if ($accessActivated) {
+                    $enrollment = DB::table('course_enrollments')
+                        ->where('user_id', $payment->user_id)
+                        ->where('course_id', $payment->course_id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$enrollment) {
+                        DB::table('course_enrollments')->insert([
+                            'user_id' => (int) $payment->user_id,
+                            'course_id' => (int) $payment->course_id,
+                            'branch_id' => $payment->student_branch_id ?? $payment->branch_id,
+                            'status' => 'active',
+                            'enrolled_by' => (int) $actor->id,
+                            'enrolled_at' => now(),
+                            'created_at' => now(),
+                            'updated_at' => null,
+                        ]);
+                    } elseif ($enrollment->status === 'pending') {
+                        DB::table('course_enrollments')->where('id', $enrollment->id)->update([
+                            'status' => 'active',
+                            'updated_at' => now(),
+                        ]);
+                    }
+                }
+
+                $paidTotal = $this->centsToMoney($paidCents);
+                $courseFee = $this->centsToMoney($courseFeeCents);
+                $this->auditPayment($request, $actor->id, 'payment.verified', $paymentId, [
+                    'ledger_reference' => $reference,
+                    'paid_total' => $paidTotal,
+                ]);
+                $this->notifyPaymentStudent(
+                    (int) $payment->user_id,
+                    (int) $actor->id,
+                    'Payment verified',
+                    'Your payment for ' . $payment->course_title . ' has been verified. Your paid total is BDT ' . $paidTotal . '.',
+                    'পেমেন্ট যাচাই সম্পন্ন',
+                    'আপনার ' . $payment->course_title . ' কোর্সের পেমেন্ট যাচাই সম্পন্ন হয়েছে।',
+                    'success'
+                );
+
+                return [
+                    'id' => $paymentId,
+                    'ledger_reference' => $reference,
+                    'verified_total' => $paidTotal,
+                    'course_fee' => $courseFee,
+                    'course_access_activated' => $accessActivated,
+                ];
+            });
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment review could not be completed.',
+                'error' => 'Payment review failed.',
+            ], 500);
+        }
+
+        if (($result['error'] ?? null) === 'not_found') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment not found.',
+                'error' => 'Not found.',
+            ], 404);
+        }
+
+        if (($result['error'] ?? null) === 'not_pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only pending payments can be reviewed.',
+                'error' => 'Conflict.',
+            ], 409);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $reject ? 'Payment rejected.' : 'Payment verified and ledger posted.',
+            'data' => $result,
+        ]);
+    }
+
+    private function auditPayment(Request $request, int $actorId, string $event, int $paymentId, array $metadata): void
+    {
+        DB::table('audit_logs')->insert([
+            'user_id' => $actorId,
+            'action' => $event,
+            'entity_type' => 'course_payment',
+            'entity_id' => $paymentId,
+            'ip_address' => substr((string) $request->ip(), 0, 45) ?: null,
+            'metadata' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+    }
+
+    private function notifyPaymentStudent(
+        int $studentId,
+        int $senderId,
+        string $title,
+        string $message,
+        string $titleBn,
+        string $messageBn,
+        string $type
+    ): void {
+        DB::table('notifications')->insert([
+            'recipient_user_id' => $studentId,
+            'sender_user_id' => $senderId,
+            'title' => $title,
+            'title_bn' => $titleBn,
+            'message' => $message,
+            'message_bn' => $messageBn,
+            'type' => $type,
+            'target_role' => 'student',
+            'action_url' => 'payments',
+            'created_at' => now(),
+        ]);
+    }
+
     private function paymentQuery(): Builder
     {
         $refunds = DB::table('payment_refunds')

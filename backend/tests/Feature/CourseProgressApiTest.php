@@ -335,4 +335,35 @@ class CourseProgressApiTest extends TestCase
         $this->getJson('/api/v1/courses/' . $deletedCourse . '/progress')->assertForbidden();
         $this->getJson('/api/v1/courses/' . $draftCourse . '/progress')->assertForbidden();
     }
+    public function test_active_subscription_course_selection_grants_lesson_and_progress_access(): void
+    {
+        $studentId = $this->createUser('subscriber@example.test', 'student');
+        $courseId = $this->createCourse('subscription-course');
+        $lessonId = $this->createLesson($courseId, 'subscription-lesson');
+        $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
+            'user_id' => $studentId,
+            'status' => 'active',
+            'starts_at' => now()->subMinute(),
+            'ends_at' => now()->addDays(10),
+        ]);
+        DB::table('user_subscription_courses')->insert([
+            'subscription_id' => $subscriptionId,
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'active',
+        ]);
+        $this->login('subscriber@example.test');
+
+        $this->getJson('/api/v1/courses/' . $courseId . '/contents')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.id', $lessonId);
+        $this->getJson('/api/v1/courses/' . $courseId . '/progress')->assertOk();
+        $this->postJson('/api/v1/progress/lessons', [
+            'course_id' => $courseId,
+            'content_item_id' => $lessonId,
+            'is_completed' => true,
+        ])->assertOk()->assertJsonPath('data.is_completed', true);
+    }
+
 }

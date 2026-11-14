@@ -50,7 +50,17 @@ class LaravelApiService {
   }
 
   public auth = {
+    csrf: async () => {
+      const result = await this.request<{ csrf_token: string }>('/api/v1/auth/csrf');
+      if (result.success && result.data?.csrf_token) this.csrfToken = result.data.csrf_token;
+      return result;
+    },
     login: async (email: string, password: string) => {
+      const csrf = await this.request<{ csrf_token: string }>('/api/v1/auth/csrf');
+      if (!csrf.success || !csrf.data?.csrf_token) {
+        return { success: false, error: csrf.error || csrf.message || 'Could not initialize Laravel CSRF session.' };
+      }
+      this.csrfToken = csrf.data.csrf_token;
       const result = await this.request<{ user: unknown; csrf_token: string }>('/api/v1/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),

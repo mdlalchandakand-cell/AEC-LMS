@@ -266,7 +266,7 @@ class SubscriptionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $actor = $request->user();
-        if (!LmsPermission::allows($actor, 'subscriptions.manage')) {
+        if (!LmsPermission::allows($actor, 'subscriptions.review')) {
             return $this->forbidden('You do not have permission to manage subscriptions.');
         }
         if ($actor->role === 'branch_manager' && !$this->hasActiveBranch($actor->branch_id)) {
@@ -315,7 +315,7 @@ class SubscriptionController extends Controller
     public function review(Request $request, int $subscription): JsonResponse
     {
         $actor = $request->user();
-        if (!LmsPermission::allows($actor, 'subscriptions.manage')) {
+        if (!LmsPermission::allows($actor, 'subscriptions.review')) {
             return $this->forbidden('You do not have permission to review subscriptions.');
         }
         if ($actor->role === 'branch_manager' && !$this->hasActiveBranch($actor->branch_id)) {

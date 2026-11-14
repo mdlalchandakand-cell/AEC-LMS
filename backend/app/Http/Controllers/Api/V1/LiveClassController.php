@@ -306,6 +306,7 @@ class LiveClassController extends Controller
         $validated = $request->validate([
             'status' => ['sometimes', 'in:upcoming,live,completed'],
             'recording_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
+            'participant_limit' => ['sometimes', 'integer', 'min:300', 'max:5000'],
         ]);
 
         $status = $validated['status'] ?? $class->status;
@@ -335,14 +336,21 @@ class LiveClassController extends Controller
             }
         }
 
-        DB::transaction(function () use ($request, $actor, $class, $liveClass, $status, $recordingUrl): void {
+        $participantLimit = isset($validated['participant_limit']) ? (int) $validated['participant_limit'] : null;
+        DB::transaction(function () use ($request, $actor, $class, $liveClass, $status, $recordingUrl, $participantLimit): void {
             $changes = ['status' => $status, 'updated_at' => now()];
+            if ($participantLimit !== null) {
+                $changes['participant_limit'] = $participantLimit;
+            }
             if ($recordingUrl !== null && $recordingUrl !== '') {
                 $changes['recording_url'] = $recordingUrl;
             }
             DB::table('live_classes')->where('id', $liveClass)->update($changes);
 
-            $this->audit($request, $actor->id, 'live_class.updated', $liveClass, ['status' => $status]);
+            $this->audit($request, $actor->id, 'live_class.updated', $liveClass, [
+                'status' => $status,
+                'participant_limit' => $participantLimit,
+            ]);
 
             if ($status !== $class->status && in_array($status, ['live', 'completed'], true)) {
                 $label = $status === 'live' ? 'Live class started' : 'Live class completed';
@@ -368,7 +376,7 @@ class LiveClassController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Live class updated.',
-            'data' => ['id' => $liveClass, 'status' => $status],
+            'data' => ['id' => $liveClass, 'status' => $status, 'participant_limit' => $participantLimit ?? (int) $class->participant_limit],
         ]);
     }
 

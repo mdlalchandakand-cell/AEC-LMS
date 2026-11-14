@@ -123,6 +123,25 @@ The existing React exam screens and legacy `/api/exams.php` workflow are not red
 - `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.
 - `POST /api/v1/progress/lessons` — records completion and notes only for a published lesson linked to the course; repeated updates upsert the same user/course/lesson record rather than creating duplicates.
 
+## Laravel reusable question bank API
+
+- `GET /api/v1/question-bank` and `GET /api/v1/question-bank/{id}` — authorized question-bank managers can search/review reusable MCQs.
+- `POST /api/v1/question-bank` and `PATCH /api/v1/question-bank/{id}` — create and maintain question text, options, correct option, explanation, marks, difficulty and tags.
+- `POST /api/v1/question-bank/add-to-exam` — imports selected published questions into a draft exam, checks all IDs before writing, prevents duplicate imports, and updates total marks.
+- `DELETE /api/v1/question-bank/{id}` — archives only questions not already used in an exam.
+
+Question-bank imports require both question-bank and exam permissions; branch managers are restricted to exams in their active branch.
+
+## Laravel certificate API
+
+- `GET /api/v1/certificates/verify/{certificate_number}` — public verification returns only public credential fields and validity status, never account identifiers.
+- `GET /api/v1/certificates/my` — students see their own issued/revoked certificates.
+- `GET /api/v1/certificates/students` and `GET /api/v1/certificates` — authorized staff list eligible students and certificates within their branch scope.
+- `POST /api/v1/certificates` — authorized staff issue one certificate per student/course only after course completion or completion of all published lessons.
+- `POST /api/v1/certificates/{id}/revoke` — authorized staff revoke a certificate with an auditable reason and notify the student.
+
+Certificate numbers are unique and verifiable; student/course snapshots preserve the public record if account or course display names later change.
+
 ## Laravel timed MCQ exam API
 
 - `GET /api/v1/exams` and `GET /api/v1/exams/{id}` — students see only published, currently open exams for global access or active/completed course enrollments; correct answers and explanations are hidden until grading.
@@ -172,4 +191,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, teacher/admin course management, teacher content management and recycle restore, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, timed MCQ exams and grading, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, teacher/admin course management, teacher content management and recycle restore, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, timed MCQ exams, reusable question bank and grading, verifiable course certificates, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

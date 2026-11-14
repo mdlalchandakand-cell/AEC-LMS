@@ -474,4 +474,33 @@ class ExamApiTest extends TestCase
             ->assertJsonPath('data.items.0.id', $attemptOne);
     }
 
+    public function test_active_subscription_course_selection_grants_course_exam_access(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'super_admin');
+        $studentId = $this->createUser('subscriber@example.test', 'student', 10);
+        $courseId = $this->createCourse($adminId, 10, 'subscription-course');
+        $examId = $this->createExam($adminId, $courseId, 'Subscription Course Exam');
+        $this->addQuestions($examId);
+        $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
+            'user_id' => $studentId,
+            'status' => 'active',
+            'starts_at' => now()->subMinute(),
+            'ends_at' => now()->addDays(10),
+        ]);
+        DB::table('user_subscription_courses')->insert([
+            'subscription_id' => $subscriptionId,
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'branch_id' => 10,
+            'status' => 'active',
+        ]);
+        $this->login('subscriber@example.test');
+
+        $this->getJson('/api/v1/exams')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $examId]);
+        $this->getJson('/api/v1/exams/' . $examId)->assertOk();
+        $this->postJson('/api/v1/exams/' . $examId . '/start')->assertOk();
+    }
+
 }

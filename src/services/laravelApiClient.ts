@@ -106,6 +106,7 @@ class LaravelApiService {
   };
 
   public enrollments = {
+    students: () => this.request<{ items: unknown[] }>('/api/v1/enrollments/students'),
     my: (perPage = 12) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/enrollments/my?per_page=' + encodeURIComponent(String(perPage))),
     list: (status = '', perPage = 100) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/enrollments?per_page=' + encodeURIComponent(String(perPage)) + (status ? '&status=' + encodeURIComponent(status) : '')),
     create: (payload: { user_id: number; course_id: number; status?: 'pending' | 'active' | 'completed' | 'cancelled'; branch_id?: number | null; notes?: string }) => this.request<{ id: number }>('/api/v1/enrollments', { method: 'POST', body: JSON.stringify(payload) }),

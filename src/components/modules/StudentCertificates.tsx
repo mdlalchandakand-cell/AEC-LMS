@@ -1,6 +1,24 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Award, Printer, RefreshCw, X } from 'lucide-react';
 import { apiClient, CertificateApiRecord } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
+
+const normalizeLaravelCertificate = (row: Record<string, unknown>): CertificateApiRecord => ({
+  id: Number(row.id),
+  certificateNumber: String(row.certificate_number || ''),
+  studentUserId: Number(row.student_user_id || 0),
+  studentId: String(row.student_id_snapshot || ''),
+  studentName: String(row.student_name_snapshot || ''),
+  courseId: Number(row.course_id || 0),
+  courseTitle: String(row.course_title_snapshot || ''),
+  completionDate: String(row.completion_date || ''),
+  grade: String(row.grade || ''),
+  issueDate: String(row.issued_at || row.issue_date || ''),
+  authorizedBy: String(row.authorized_by || ''),
+  status: row.status === 'revoked' ? 'revoked' : 'issued',
+  revokedAt: row.revoked_at ? String(row.revoked_at) : null,
+  revokeReason: row.revoke_reason ? String(row.revoke_reason) : null,
+});
 
 export const StudentCertificates: React.FC = () => {
   const [items, setItems] = useState<CertificateApiRecord[]>([]);
@@ -11,9 +29,17 @@ export const StudentCertificates: React.FC = () => {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
-    const result = await apiClient.certificates.getMine();
-    if (result.success && result.data) setItems(result.data);
-    else setError(result.error || 'Could not load your certificates.');
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.certificates.mine()
+      : await apiClient.certificates.getMine();
+    const rows = isLaravelApiEnabled
+      ? (result.data as { items?: unknown[] } | undefined)?.items
+      : result.data;
+    if (result.success && Array.isArray(rows)) {
+      setItems(isLaravelApiEnabled
+        ? (rows as Array<Record<string, unknown>>).map(normalizeLaravelCertificate)
+        : rows as CertificateApiRecord[]);
+    } else setError(result.error || 'Could not load your certificates.');
     setLoading(false);
   }, []);
 

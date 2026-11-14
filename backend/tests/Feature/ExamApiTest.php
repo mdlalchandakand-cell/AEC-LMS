@@ -478,8 +478,8 @@ class ExamApiTest extends TestCase
     {
         $adminId = $this->createUser('admin@example.test', 'super_admin');
         $studentId = $this->createUser('subscriber@example.test', 'student', 10);
-        $courseId = $this->createCourse($adminId, 10, 'subscription-course');
-        $examId = $this->createExam($adminId, $courseId, 'Subscription Course Exam');
+        $courseId = $this->createCourse($adminId, 'subscription-course', 10);
+        $examId = $this->createExam($courseId, $adminId, 'published');
         $this->addQuestions($examId);
         $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
             'user_id' => $studentId,

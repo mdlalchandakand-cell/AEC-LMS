@@ -195,6 +195,15 @@ class CourseProgressController extends Controller
             ->where('selected.course_id', $courseId)
             ->where('selected.status', 'active')
             ->where('subscriptions.status', 'active')
+            ->where(function ($branch): void {
+                $branch->whereNull('selected.branch_id')
+                    ->orWhereExists(function ($active): void {
+                        $active->selectRaw('1')
+                            ->from('branches')
+                            ->whereColumn('branches.id', 'selected.branch_id')
+                            ->where('branches.is_active', 1);
+                    });
+            })
             ->where(function ($starts) use ($now): void {
                 $starts->whereNull('subscriptions.starts_at')->orWhere('subscriptions.starts_at', '<=', $now);
             })

@@ -344,7 +344,10 @@ class CourseManagementController extends Controller
     private function canManageCourse($actor, object $course, bool $restoring = false): bool
     {
         if ($actor->role === 'teacher') {
-            if ((int) $course->created_by === (int) $actor->id) {
+            $sameBranch = $course->branch_id === null
+                ? $actor->branch_id === null
+                : ($actor->branch_id !== null && (int) $course->branch_id === (int) $actor->branch_id);
+            if ((int) $course->created_by === (int) $actor->id && $sameBranch) {
                 return true;
             }
 

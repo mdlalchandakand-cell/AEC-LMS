@@ -268,7 +268,16 @@ class PaymentController extends Controller
             'reason' => ['required', 'string', 'min:1', 'max:500'],
         ]);
 
-        return $this->reviewPayment($request, $payment, true, trim($validated['reason']));
+        $reason = trim($validated['reason']);
+        if ($reason === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'A rejection reason is required.',
+                'error' => 'Validation failed.',
+            ], 422);
+        }
+
+        return $this->reviewPayment($request, $payment, true, $reason);
     }
 
     private function reviewPayment(Request $request, int $paymentId, bool $reject, ?string $reason): JsonResponse

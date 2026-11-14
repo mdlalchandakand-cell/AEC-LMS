@@ -551,6 +551,293 @@ class PaymentController extends Controller
         ]);
     }
 
+    public function refund(Request $request, int $payment): JsonResponse
+    {
+        $actor = $request->user();
+        if (!LmsPermission::allows($actor, 'payments.manage')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to manage payments.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        if ($actor->role === 'branch_manager' && (!$actor->branch_id || !DB::table('branches')
+            ->where('id', $actor->branch_id)
+            ->where('is_active', 1)
+            ->exists())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is not assigned to an active branch.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'amount' => ['required'],
+            'refund_reference' => ['required', 'string', 'max:120'],
+            'reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        if (!is_string($validated['amount']) && !is_int($validated['amount']) && !is_float($validated['amount'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Refund amount must be a positive BDT amount with up to two decimal places.',
+                'error' => 'Validation failed.',
+            ], 422);
+        }
+
+        $amountRaw = trim((string) $validated['amount']);
+        if (!preg_match('/^(?:0|[1-9][0-9]{0,9})(?:\.[0-9]{1,2})?$/', $amountRaw)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Refund amount must be a positive BDT amount with up to two decimal places.',
+                'error' => 'Validation failed.',
+            ], 422);
+        }
+
+        $refundCents = $this->moneyToCents($amountRaw);
+        $refundReference = trim($validated['refund_reference']);
+        $reason = trim($validated['reason']);
+
+        if ($refundCents <= 0 || $refundReference === '' || $reason === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'A positive refund amount, provider reference and reason are required.',
+                'error' => 'Validation failed.',
+            ], 422);
+        }
+
+        try {
+            $result = DB::transaction(function () use ($request, $actor, $payment, $refundCents, $refundReference, $reason): array {
+                $paymentRow = DB::table('course_payments as payments')
+                    ->join('courses', 'courses.id', '=', 'payments.course_id')
+                    ->join('users as students', 'students.id', '=', 'payments.user_id')
+                    ->where('payments.id', $payment)
+                    ->select([
+                        'payments.*',
+                        'courses.title as course_title',
+                        'courses.price as course_price',
+                        'students.branch_id as student_branch_id',
+                    ])
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$paymentRow || ($actor->role === 'branch_manager'
+                    && (int) $paymentRow->branch_id !== (int) $actor->branch_id)) {
+                    return ['error' => 'not_found'];
+                }
+
+                if (!in_array($paymentRow->status, ['verified', 'refunded'], true)) {
+                    return ['error' => 'not_refundable'];
+                }
+
+                $alreadyRefundedRaw = DB::table('payment_refunds')
+                    ->where('payment_id', $payment)
+                    ->where('status', 'completed')
+                    ->sum('amount');
+                $alreadyRefundedCents = $this->moneyToCents((string) $alreadyRefundedRaw);
+                $paymentCents = $this->moneyToCents((string) $paymentRow->amount);
+                $remainingRefundable = max(0, $paymentCents - $alreadyRefundedCents);
+
+                if ($refundCents > $remainingRefundable) {
+                    return [
+                        'error' => 'refund_exceeded',
+                        'remaining_refundable' => $this->centsToMoney($remainingRefundable),
+                    ];
+                }
+
+                $refundId = (int) DB::table('payment_refunds')->insertGetId([
+                    'payment_id' => $payment,
+                    'amount' => $this->centsToMoney($refundCents),
+                    'currency' => $paymentRow->currency,
+                    'refund_reference' => $refundReference,
+                    'reason' => $reason,
+                    'status' => 'completed',
+                    'processed_by' => (int) $actor->id,
+                    'processed_at' => now(),
+                    'created_at' => now(),
+                ]);
+
+                $clearingCode = $paymentRow->payment_method === 'Bank Transfer'
+                    ? 'ASSET_BANK_CLEARING'
+                    : 'ASSET_BKASH_NAGAD_CLEARING';
+
+                $debitAccount = DB::table('accounting_accounts')
+                    ->where('account_code', 'INCOME_TUITION')
+                    ->where('is_active', 1)
+                    ->value('id');
+                $creditAccount = DB::table('accounting_accounts')
+                    ->where('account_code', $clearingCode)
+                    ->where('is_active', 1)
+                    ->value('id');
+
+                if (!$debitAccount || !$creditAccount) {
+                    throw new \RuntimeException('Required refund accounting accounts are missing.');
+                }
+
+                $ledgerReference = 'REF-' . str_pad((string) $refundId, 10, '0', STR_PAD_LEFT);
+                $ledgerId = (int) DB::table('ledger_transactions')->insertGetId([
+                    'payment_id' => null,
+                    'refund_id' => $refundId,
+                    'reference' => $ledgerReference,
+                    'description' => 'Refund for course payment ' . $payment,
+                    'created_by' => (int) $actor->id,
+                    'created_at' => now(),
+                ]);
+
+                DB::table('ledger_entries')->insert([
+                    [
+                        'transaction_id' => $ledgerId,
+                        'account_id' => (int) $debitAccount,
+                        'debit' => $this->centsToMoney($refundCents),
+                        'credit' => '0.00',
+                        'currency' => $paymentRow->currency,
+                        'created_at' => now(),
+                    ],
+                    [
+                        'transaction_id' => $ledgerId,
+                        'account_id' => (int) $creditAccount,
+                        'debit' => '0.00',
+                        'credit' => $this->centsToMoney($refundCents),
+                        'currency' => $paymentRow->currency,
+                        'created_at' => now(),
+                    ],
+                ]);
+
+                $refundedTotal = $alreadyRefundedCents + $refundCents;
+                $paymentStatus = $refundedTotal >= $paymentCents ? 'refunded' : 'verified';
+                DB::table('course_payments')->where('id', $payment)->update([
+                    'status' => $paymentStatus,
+                ]);
+
+                $refunds = DB::table('payment_refunds')
+                    ->select('payment_id')
+                    ->selectRaw('SUM(amount) AS refunded_amount')
+                    ->where('status', 'completed')
+                    ->groupBy('payment_id');
+
+                $netPayments = DB::table('course_payments as payments')
+                    ->leftJoinSub($refunds, 'refunds', function ($join): void {
+                        $join->on('refunds.payment_id', '=', 'payments.id');
+                    })
+                    ->where('payments.user_id', $paymentRow->user_id)
+                    ->where('payments.course_id', $paymentRow->course_id)
+                    ->whereIn('payments.status', ['verified', 'refunded'])
+                    ->select('payments.amount')
+                    ->selectRaw('COALESCE(refunds.refunded_amount, 0) AS refunded_amount')
+                    ->get();
+
+                $netPaidCents = 0;
+                foreach ($netPayments as $netPayment) {
+                    $netPaidCents += max(
+                        0,
+                        $this->moneyToCents((string) $netPayment->amount)
+                        - $this->moneyToCents((string) $netPayment->refunded_amount)
+                    );
+                }
+
+                $courseFeeCents = $this->moneyToCents((string) $paymentRow->course_price);
+                $accessCancelled = false;
+                if ($courseFeeCents > 0 && $netPaidCents < $courseFeeCents) {
+                    $accessCancelled = DB::table('course_enrollments')
+                        ->where('user_id', $paymentRow->user_id)
+                        ->where('course_id', $paymentRow->course_id)
+                        ->where('status', 'active')
+                        ->update(['status' => 'cancelled', 'updated_at' => now()]) > 0;
+                }
+
+                $refundAmount = $this->centsToMoney($refundCents);
+                $refundedAmount = $this->centsToMoney($refundedTotal);
+                $netPaid = $this->centsToMoney($netPaidCents);
+
+                $this->auditPayment($request, $actor->id, 'payment.refunded', $payment, [
+                    'refund_id' => $refundId,
+                    'refund_reference' => $refundReference,
+                    'refund_amount' => $refundAmount,
+                    'refunded_total' => $refundedAmount,
+                    'net_course_paid' => $netPaid,
+                    'ledger_reference' => $ledgerReference,
+                ]);
+                $this->notifyPaymentStudent(
+                    (int) $paymentRow->user_id,
+                    (int) $actor->id,
+                    'Payment refund recorded',
+                    'A refund of BDT ' . $refundAmount . ' was recorded for ' . $paymentRow->course_title . '. Provider reference: ' . $refundReference . '.',
+                    'পেমেন্ট রিফান্ড রেকর্ড করা হয়েছে',
+                    $paymentRow->course_title . ' কোর্সের BDT ' . $refundAmount . ' রিফান্ড রেকর্ড করা হয়েছে।',
+                    'warning'
+                );
+
+                return [
+                    'id' => $payment,
+                    'refund_id' => $refundId,
+                    'ledger_reference' => $ledgerReference,
+                    'payment_status' => $paymentStatus,
+                    'refunded_total' => $refundedAmount,
+                    'remaining_refundable' => $this->centsToMoney(max(0, $paymentCents - $refundedTotal)),
+                    'net_course_paid' => $netPaid,
+                    'course_access_cancelled' => $accessCancelled,
+                ];
+            });
+        } catch (\Illuminate\Database\QueryException $exception) {
+            if ((string) $exception->getCode() === '23000') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Refund reference already exists or the refund conflicts with an existing record.',
+                    'error' => 'Conflict.',
+                ], 409);
+            }
+
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Refund could not be recorded.',
+                'error' => 'Refund failed.',
+            ], 500);
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Refund could not be recorded.',
+                'error' => 'Refund failed.',
+            ], 500);
+        }
+
+        if (($result['error'] ?? null) === 'not_found') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment not found.',
+                'error' => 'Not found.',
+            ], 404);
+        }
+
+        if (($result['error'] ?? null) === 'not_refundable') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only verified payments can be refunded.',
+                'error' => 'Conflict.',
+            ], 409);
+        }
+
+        if (($result['error'] ?? null) === 'refund_exceeded') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Refund exceeds the remaining refundable amount.',
+                'error' => 'Validation failed.',
+                'data' => ['remaining_refundable' => $result['remaining_refundable']],
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Provider-confirmed refund recorded and reversal journal posted.',
+            'data' => $result,
+        ]);
+    }
+
     private function paymentQuery(): Builder
     {
         $refunds = DB::table('payment_refunds')

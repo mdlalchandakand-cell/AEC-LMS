@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\ContentManagementController;
 use App\Http\Controllers\Api\V1\CourseManagementController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
+use App\Http\Controllers\Api\V1\ExamController;
 use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\TeacherCommissionController;
 use App\Http\Controllers\Api\V1\PaymentController;
@@ -107,6 +108,22 @@ Route::prefix('api/v1/progress')
     ->middleware(['auth', 'lms.session'])
     ->group(function (): void {
         Route::post('/lessons', [CourseProgressController::class, 'update'])->name('lessons.update');
+    });
+
+Route::prefix('api/v1/exams')
+    ->name('api.v1.exams.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [ExamController::class, 'index'])->name('index');
+        Route::post('/', [ExamController::class, 'store'])->name('store');
+        Route::get('/attempts', [ExamController::class, 'attempts'])->name('attempts');
+        Route::post('/attempts/{attempt}/answers', [ExamController::class, 'saveAnswers'])->whereNumber('attempt')->name('attempts.answers');
+        Route::post('/attempts/{attempt}/submit', [ExamController::class, 'submit'])->whereNumber('attempt')->name('attempts.submit');
+        Route::get('/{exam}', [ExamController::class, 'show'])->whereNumber('exam')->name('show');
+        Route::patch('/{exam}', [ExamController::class, 'update'])->whereNumber('exam')->name('update');
+        Route::put('/{exam}/questions', [ExamController::class, 'saveQuestions'])->whereNumber('exam')->name('questions.save');
+        Route::post('/{exam}/start', [ExamController::class, 'start'])->whereNumber('exam')->name('start');
+        Route::delete('/{exam}', [ExamController::class, 'destroy'])->whereNumber('exam')->name('destroy');
     });
 
 Route::prefix('api/v1/live-classes')

@@ -163,7 +163,8 @@ class LaravelApiService {
     list: (filters: { status?: string; from?: string; to?: string; per_page?: number } = {}) => {
       const query = new URLSearchParams();
       Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)); });
-      return this.request<{ data: Array<Record<string, unknown>>; total: number; current_page: number; last_page: number }>('/api/v1/expenses' + (query.size ? '?' + query.toString() : ''));
+      const queryString = query.toString();
+      return this.request<{ data: Array<Record<string, unknown>>; total: number; current_page: number; last_page: number }>('/api/v1/expenses' + (queryString ? '?' + queryString : ''));
     },
     create: (payload: Record<string, unknown>) => this.request<{ id: number; status: string }>('/api/v1/expenses', { method: 'POST', body: JSON.stringify(payload) }),
     update: (id: number, payload: Record<string, unknown>) => this.request('/api/v1/expenses/' + id, { method: 'PATCH', body: JSON.stringify(payload) }),

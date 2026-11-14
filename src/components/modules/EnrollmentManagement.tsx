@@ -43,18 +43,28 @@ export const EnrollmentManagement: React.FC = () => {
       isLaravelApiEnabled
         ? laravelApiClient.enrollments.list(filter, 100)
         : apiClient.enrollments.getAll(filter, 200),
-      apiClient.users.getAll('', 100),
-      apiClient.courses.getAll(),
+      isLaravelApiEnabled
+        ? laravelApiClient.enrollments.students()
+        : apiClient.users.getAll('', 100),
+      isLaravelApiEnabled
+        ? laravelApiClient.catalog.courses('', 50)
+        : apiClient.courses.getAll(),
     ]);
     const enrollmentRows = isLaravelApiEnabled
       ? (enrollments.data as { items?: unknown[] } | undefined)?.items
       : enrollments.data;
+    const studentRows = isLaravelApiEnabled
+      ? (userResult.data as { items?: unknown[] } | undefined)?.items
+      : userResult.data;
+    const courseRows = isLaravelApiEnabled
+      ? (courseResult.data as { items?: unknown[] } | undefined)?.items
+      : courseResult.data;
     if (enrollments.success && Array.isArray(enrollmentRows)) setItems(enrollmentRows as Enrollment[]);
     else setError(enrollments.error || 'Could not load enrollments.');
-    if (userResult.success && Array.isArray(userResult.data)) {
-      setStudents((userResult.data as StudentOption[]).filter(user => user.role === 'student'));
+    if (userResult.success && Array.isArray(studentRows)) {
+      setStudents((studentRows as StudentOption[]).map(user => ({ ...user, role: user.role || 'student' })));
     }
-    if (courseResult.success && Array.isArray(courseResult.data)) setCourses(courseResult.data as CourseOption[]);
+    if (courseResult.success && Array.isArray(courseRows)) setCourses(courseRows as CourseOption[]);
     setLoading(false);
   }, [filter]);
 

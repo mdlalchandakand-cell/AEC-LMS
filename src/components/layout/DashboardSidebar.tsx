@@ -55,6 +55,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
         return [
           { id: 'overview', label: t.dashboard, icon: LayoutDashboard },
           { id: 'payments', label: language === 'bn' ? 'পেমেন্ট ও হিসাব' : 'Fee Collections', icon: CreditCard },
+          { id: 'expenses', label: language === 'bn' ? 'শাখার ব্যয়' : 'Branch Expenses', icon: DollarSign },
           { id: 'teacher_commissions', label: language === 'bn' ? 'শিক্ষক কমিশন পে-আউট' : 'Teacher Payout Approvals', icon: DollarSign },
           { id: 'admissions', label: language === 'bn' ? 'ভর্তি ফি অনুমোদন' : 'Pending Approvals', icon: UserPlus },
           { id: 'students', label: t.studentsMenu, icon: Users },
@@ -78,6 +79,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
           { id: 'enrollments', label: language === 'bn' ? 'কোর্স এনরোলমেন্ট' : 'Course Enrollments', icon: BookOpen },
           { id: 'attendance', label: t.attendanceMenu, icon: CalendarCheck },
           { id: 'payments', label: t.paymentsMenu, icon: CreditCard },
+          { id: 'expenses', label: language === 'bn' ? 'ব্যয় ব্যবস্থাপনা' : 'Expense Management', icon: DollarSign },
           { id: 'live_classes', label: t.liveClassesMenu, icon: Video },
           { id: 'branch_info', label: language === 'bn' ? 'আমার শাখার তথ্য' : 'My Branch', icon: Building2 }
         ];
@@ -112,6 +114,7 @@ export const DashboardSidebar: React.FC<DashboardSidebarProps> = ({
           { id: 'live_classes', label: language === 'bn' ? 'লাইভ ক্লাস ও ভিডিও (৬)' : 'Live Classes (6)', icon: Video, badge: 'LIVE' },
           { id: 'exams', label: language === 'bn' ? 'পরীক্ষা ও রেজাল্ট (৭)' : 'Exams & Results (7)', icon: FileCheck },
           { id: 'payments', label: language === 'bn' ? 'পেমেন্ট ও হিসাব (৮)' : 'Payments & Ledger (8)', icon: CreditCard },
+          { id: 'expenses', label: language === 'bn' ? 'ব্যয় ব্যবস্থাপনা' : 'Expense Management', icon: DollarSign },
           { id: 'storefront_catalog', label: language === 'bn' ? 'ই-বুক ও প্রোডাক্ট ক্যাটালগ' : 'Storefront Catalog', icon: ShoppingBag },
           { id: 'storefront_orders', label: language === 'bn' ? 'ই-বুক ও প্রোডাক্ট অর্ডার' : 'Storefront Orders', icon: ShoppingBag, badge: 'NEW' },
           { id: 'attendance', label: t.attendanceMenu, icon: CalendarCheck },

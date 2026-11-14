@@ -329,6 +329,23 @@ class ContentManagementController extends Controller
     private function canManageContent($actor, object $item): bool
     {
         if ($actor->role === 'teacher') {
+            $hasForeignBranchLink = DB::table('course_content as links')
+                ->join('courses', 'courses.id', '=', 'links.course_id')
+                ->where('links.content_item_id', $item->id)
+                ->where(function ($scope) use ($actor): void {
+                    if ($actor->branch_id === null) {
+                        $scope->whereNotNull('courses.branch_id');
+                    } else {
+                        $scope->whereNull('courses.branch_id')
+                            ->orWhere('courses.branch_id', '<>', $actor->branch_id);
+                    }
+                })
+                ->exists();
+
+            if ($hasForeignBranchLink) {
+                return false;
+            }
+
             if ((int) $item->created_by === (int) $actor->id) {
                 return true;
             }

@@ -217,8 +217,8 @@ if ($action === 'permanent_delete') {
     try {
         $stmt = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' LIMIT 1 FOR UPDATE");
         $stmt->execute([$id]); $item = $stmt->fetch();
-        if (!$item) aec_fail('Active recycle-bin item not found.', 404);
-        aec_recycle_scope($actor, $item);
+        if (!$item) aec_recycle_abort($db, 'Active recycle-bin item not found.', 404);
+        aec_recycle_scope($db, $actor, $item);
         $result = aec_recycle_purge($db, $actor, $item);
         if (!$result['purged']) { $db->commit(); aec_fail((string)$result['reason'], 409); }
         $db->commit();
@@ -259,7 +259,7 @@ if ($action === 'empty') {
             $db->commit();
         } catch (Throwable $error) {
             if ($db->inTransaction()) $db->rollBack();
-            $blocked[] = ['id' => (int)$item['id'], 'title' => $item['title'], 'reason' => 'Deletion failed safely.'];
+            $blocked[] = ['id' => (int)$candidate['id'], 'title' => (string)$candidate['title'], 'reason' => 'Deletion failed safely.'];
         }
     }
     aec_ok(['purged' => $purged, 'blocked' => $blocked], $purged . ' item(s) permanently deleted; ' . count($blocked) . ' retained due to linked records.');

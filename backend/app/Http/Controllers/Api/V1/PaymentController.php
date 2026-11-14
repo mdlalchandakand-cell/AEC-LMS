@@ -91,6 +91,14 @@ class PaymentController extends Controller
             'sender_phone' => ['sometimes', 'nullable', 'string', 'max:32'],
         ]);
 
+        if (!is_string($validated['amount']) && !is_int($validated['amount']) && !is_float($validated['amount'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Amount must be a valid positive BDT amount with up to two decimal places.',
+                'error' => 'Validation failed.',
+            ], 422);
+        }
+
         $amountRaw = trim((string) $validated['amount']);
         if (!preg_match('/^(?:0|[1-9][0-9]{0,9})(?:\.[0-9]{1,2})?$/', $amountRaw)) {
             return response()->json([

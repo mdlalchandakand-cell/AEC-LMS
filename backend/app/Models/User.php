@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -45,6 +46,16 @@ class User extends Authenticatable
     public function getAuthPassword(): string
     {
         return (string) $this->getAttribute('password_hash');
+    }
+
+    public function enrollments(): HasMany
+    {
+        return $this->hasMany(CourseEnrollment::class, 'user_id');
+    }
+
+    public function createdEnrollments(): HasMany
+    {
+        return $this->hasMany(CourseEnrollment::class, 'enrolled_by');
     }
 
     protected function casts(): array

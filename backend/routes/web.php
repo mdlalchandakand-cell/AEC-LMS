@@ -21,7 +21,13 @@ Route::prefix('api/v1/auth')->name('api.v1.auth.')->group(function (): void {
     Route::middleware(['auth', 'lms.session'])->group(function (): void {
         Route::get('/me', [AuthController::class, 'me'])->name('me');
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-        Route::get('/enrollments/my', [EnrollmentController::class, 'my'])->name('enrollments.my');
-        Route::get('/enrollments', [EnrollmentController::class, 'index'])->name('enrollments.index');
     });
 });
+
+Route::prefix('api/v1/enrollments')
+    ->name('api.v1.enrollments.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/my', [EnrollmentController::class, 'my'])->name('my');
+        Route::get('/', [EnrollmentController::class, 'index'])->name('index');
+    });

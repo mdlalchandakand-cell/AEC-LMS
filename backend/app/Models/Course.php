@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Course extends Model
@@ -51,6 +52,11 @@ class Course extends Model
     {
         return $this->belongsToMany(ContentItem::class, 'course_content', 'course_id', 'content_item_id')
             ->withPivot(['sort_order', 'is_preview']);
+    }
+
+    public function enrollments(): HasMany
+    {
+        return $this->hasMany(CourseEnrollment::class, 'course_id');
     }
 
     public function scopePublished(Builder $query): Builder

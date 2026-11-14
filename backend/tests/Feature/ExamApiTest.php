@@ -420,4 +420,40 @@ class ExamApiTest extends TestCase
             'deleted_at' => null,
         ]);
     }
+    public function test_branch_manager_attempt_history_is_scoped_to_their_branch(): void
+    {
+        $managerId = $this->createUser('manager@example.test', 'branch_manager', 10);
+        $studentOne = $this->createUser('student-one@example.test', 'student', 10);
+        $studentTwo = $this->createUser('student-two@example.test', 'student', 20);
+        $this->grant('branch_manager');
+
+        $courseOne = $this->createCourse($managerId, 'branch-one-course', 10);
+        $courseTwo = $this->createCourse($managerId, 'branch-two-course', 20);
+        $examOne = $this->createExam($courseOne, $managerId);
+        $examTwo = $this->createExam($courseTwo, $managerId);
+
+        $attemptOne = (int) DB::table('exam_attempts')->insertGetId([
+            'exam_id' => $examOne,
+            'user_id' => $studentOne,
+            'started_at' => now(),
+            'expires_at' => now()->addMinutes(30),
+            'status' => 'submitted',
+            'created_at' => now(),
+        ]);
+        DB::table('exam_attempts')->insert([
+            'exam_id' => $examTwo,
+            'user_id' => $studentTwo,
+            'started_at' => now(),
+            'expires_at' => now()->addMinutes(30),
+            'status' => 'submitted',
+            'created_at' => now(),
+        ]);
+
+        $this->login('manager@example.test');
+        $this->getJson('/api/v1/exams/attempts')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.id', $attemptOne);
+    }
+
 }

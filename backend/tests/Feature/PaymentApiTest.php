@@ -79,7 +79,13 @@ class PaymentApiTest extends TestCase
             $table->id();
             $table->unsignedBigInteger('payment_id');
             $table->decimal('amount', 12, 2);
+            $table->char('currency', 3)->default('BDT');
+            $table->string('refund_reference', 120)->unique();
+            $table->string('reason', 500);
             $table->string('status', 20)->default('completed');
+            $table->unsignedBigInteger('processed_by')->nullable();
+            $table->dateTime('processed_at')->nullable();
+            $table->dateTime('created_at')->nullable();
         });
 
         Schema::create('audit_logs', function (Blueprint $table): void {
@@ -214,7 +220,12 @@ class PaymentApiTest extends TestCase
         DB::table('payment_refunds')->insert([
             'payment_id' => $ownPayment,
             'amount' => '250.00',
+            'currency' => 'BDT',
+            'refund_reference' => 'AEC-HISTORY-REF-001',
+            'reason' => 'Student refund history fixture',
             'status' => 'completed',
+            'processed_at' => now(),
+            'created_at' => now(),
         ]);
 
         $this->login('student-one@example.test');
@@ -545,6 +556,125 @@ class PaymentApiTest extends TestCase
             'type' => 'warning',
         ]);
         $this->assertSame(0, DB::table('ledger_transactions')->where('payment_id', $paymentId)->count());
+    }
+
+    public function test_provider_confirmed_full_refund_posts_reversal_and_cancels_course_access(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'verified', 'AEC-REFUND-001');
+        DB::table('course_enrollments')->insert([
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'active',
+            'enrolled_by' => $adminId,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+        ]);
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/refund', [
+            'amount' => '1250.00',
+            'refund_reference' => 'PROVIDER-REF-001',
+            'reason' => 'Provider confirmed full refund.',
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'refunded')
+            ->assertJsonPath('data.refunded_total', '1250.00')
+            ->assertJsonPath('data.net_course_paid', '0.00')
+            ->assertJsonPath('data.course_access_cancelled', true);
+
+        $this->assertDatabaseHas('payment_refunds', [
+            'payment_id' => $paymentId,
+            'amount' => '1250.00',
+            'refund_reference' => 'PROVIDER-REF-001',
+            'processed_by' => $adminId,
+        ]);
+        $this->assertDatabaseHas('course_payments', [
+            'id' => $paymentId,
+            'status' => 'refunded',
+        ]);
+        $refundId = DB::table('payment_refunds')->where('refund_reference', 'PROVIDER-REF-001')->value('id');
+        $ledgerId = DB::table('ledger_transactions')->where('refund_id', $refundId)->value('id');
+        $this->assertNotNull($ledgerId);
+        $this->assertSame(2, DB::table('ledger_entries')->where('transaction_id', $ledgerId)->count());
+        $this->assertSame('1250.00', number_format((float) DB::table('ledger_entries')->where('transaction_id', $ledgerId)->sum('debit'), 2, '.', ''));
+        $this->assertSame('1250.00', number_format((float) DB::table('ledger_entries')->where('transaction_id', $ledgerId)->sum('credit'), 2, '.', ''));
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'cancelled',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $adminId,
+            'action' => 'payment.refunded',
+            'entity_id' => $paymentId,
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'recipient_user_id' => $studentId,
+            'sender_user_id' => $adminId,
+            'title' => 'Payment refund recorded',
+            'type' => 'warning',
+        ]);
+    }
+
+    public function test_refund_cannot_exceed_remaining_refundable_amount(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'verified', 'AEC-REFUND-OVER-001');
+        DB::table('payment_refunds')->insert([
+            'payment_id' => $paymentId,
+            'amount' => '250.00',
+            'currency' => 'BDT',
+            'refund_reference' => 'PROVIDER-REF-PRIOR-001',
+            'reason' => 'Prior partial refund.',
+            'status' => 'completed',
+            'processed_by' => $adminId,
+            'processed_at' => now(),
+            'created_at' => now(),
+        ]);
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/refund', [
+            'amount' => '1100.00',
+            'refund_reference' => 'PROVIDER-REF-OVER-001',
+            'reason' => 'Attempt to over-refund.',
+        ])->assertUnprocessable()
+            ->assertJsonPath('data.remaining_refundable', '1000.00');
+
+        $this->assertDatabaseMissing('payment_refunds', [
+            'refund_reference' => 'PROVIDER-REF-OVER-001',
+        ]);
+        $this->assertDatabaseHas('course_payments', [
+            'id' => $paymentId,
+            'status' => 'verified',
+        ]);
     }
 
     public function test_payment_rejection_requires_a_non_blank_reason(): void

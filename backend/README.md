@@ -48,6 +48,18 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 
 These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. The create/update actions do not process payments or grant access based on payment status. Payment verification and gateway workflows remain on the legacy API until their write rules and parity tests are migrated.
 
+## Laravel guardian API
+
+- `POST /api/v1/guardians/requests` — a guardian requests a link using the student's account email; same-branch matching and a per-email/IP rate limit apply.
+- `GET /api/v1/guardians/incoming` — the student sees pending requests.
+- `POST /api/v1/guardians/{id}/respond` — only the student can accept or reject their own pending request.
+- `GET /api/v1/guardians/my-students` — lists the guardian's pending/active links; student phone numbers are hidden until approval.
+- `GET /api/v1/guardians/summary?student_id={id}` — returns courses, attendance, submitted exam results, payment history and certificates only while the student is active and the consent link remains active.
+- `POST /api/v1/guardians/{id}/revoke` — either linked party can revoke access immediately.
+- `GET /api/v1/guardians` — administrators and branch managers can review links within their permitted scope.
+
+Guardian access is consent-based: a pending request never exposes student records. Link requests, approvals, rejections and revocations are audited and relevant parties are notified.
+
 ## Laravel course progress API
 
 - `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.
@@ -88,4 +100,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, lesson progress, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

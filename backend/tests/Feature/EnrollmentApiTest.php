@@ -113,6 +113,33 @@ class EnrollmentApiTest extends TestCase
         ])->assertOk();
     }
 
+    public function test_branch_manager_student_directory_is_limited_to_own_active_branch(): void
+    {
+        DB::table('branches')->insert([
+            ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
+        ]);
+        $this->createUser('manager@example.test', 'branch_manager', 'Branch Manager', 10);
+        $studentOne = $this->createUser('student-one@example.test', 'student', 'Student One', 10);
+        $this->createUser('student-two@example.test', 'student', 'Student Two', 20);
+        $this->login('manager@example.test');
+
+        $this->getJson('/api/v1/enrollments/students')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.id', $studentOne)
+            ->assertJsonPath('data.items.0.email', 'student-one@example.test');
+    }
+
+    public function test_student_cannot_access_enrollment_student_directory(): void
+    {
+        $this->createUser('student@example.test', 'student', 'Student');
+        $this->login('student@example.test');
+
+        $this->getJson('/api/v1/enrollments/students')
+            ->assertForbidden();
+    }
+
     public function test_student_only_sees_own_enrollments_and_deleted_courses_are_hidden(): void
     {
         $studentId = $this->createUser('student-one@example.test', 'student', 'Student One');

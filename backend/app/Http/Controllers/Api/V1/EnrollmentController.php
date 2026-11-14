@@ -50,6 +50,39 @@ class EnrollmentController extends Controller
         ]);
     }
 
+    public function students(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        if (!LmsPermission::allows($actor, 'enrollments.manage')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to view the student directory.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        $query = DB::table('users')
+            ->where('role', 'student')
+            ->where('is_active', 1)
+            ->select(['id', 'name', 'email', 'branch_id'])
+            ->orderBy('name')
+            ->orderBy('id')
+            ->limit(200);
+
+        if ($actor->role === 'branch_manager') {
+            if (!$this->hasActiveBranch($actor->branch_id)) {
+                return $this->activeBranchForbidden();
+            }
+            $query->where('branch_id', $actor->branch_id);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Active students loaded.',
+            'data' => ['items' => $query->get()],
+        ]);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $actor = $request->user();

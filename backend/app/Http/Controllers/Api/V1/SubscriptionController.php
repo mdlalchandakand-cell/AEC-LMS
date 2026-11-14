@@ -31,12 +31,19 @@ class SubscriptionController extends Controller
             return $this->forbidden('Student account required.');
         }
 
-        DB::table('user_subscriptions')
+        $expiredIds = DB::table('user_subscriptions')
             ->where('user_id', $student->id)
             ->where('status', 'active')
             ->whereNotNull('ends_at')
             ->where('ends_at', '<=', now('Asia/Dhaka')->format('Y-m-d H:i:s'))
-            ->update(['status' => 'expired', 'updated_at' => now()]);
+            ->pluck('id');
+        if ($expiredIds->isNotEmpty()) {
+            DB::table('user_subscriptions')->whereIn('id', $expiredIds)->update(['status' => 'expired', 'updated_at' => now()]);
+            DB::table('user_subscription_courses')
+                ->whereIn('subscription_id', $expiredIds)
+                ->where('status', 'active')
+                ->update(['status' => 'expired', 'updated_at' => now()]);
+        }
 
         $items = DB::table('user_subscriptions as subscriptions')
             ->join('subscription_plans as plans', 'plans.id', '=', 'subscriptions.plan_id')

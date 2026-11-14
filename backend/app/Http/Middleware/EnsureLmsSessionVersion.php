@@ -11,7 +11,11 @@ class EnsureLmsSessionVersion
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $user = $request->user();
+        // Force a fresh provider lookup so session_version changes made by an
+        // administrator or password-reset flow are noticed on this request.
+        $guard = Auth::guard('web');
+        $guard->forgetUser();
+        $user = $guard->user();
         $sessionVersion = $request->session()->get('aec_session_version');
 
         if (

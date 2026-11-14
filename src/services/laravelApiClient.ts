@@ -94,6 +94,17 @@ class LaravelApiService {
     archivePlan: (planId: number) => this.request('/api/v1/subscriptions/plans/' + planId, { method: 'DELETE' }),
   };
 
+  public payments = {
+    my: (perPage = 50) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/payments/my?per_page=' + encodeURIComponent(String(perPage))),
+    list: (status = '', perPage = 100) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/payments?per_page=' + encodeURIComponent(String(perPage)) + (status ? '&status=' + encodeURIComponent(status) : '')),
+    submit: (payload: { course_id: number; amount: string | number; method: 'bKash' | 'Nagad' | 'Bank Transfer'; trx_id: string; sender_phone?: string }) => this.request<{ id: number; remaining_amount: string }>('/api/v1/payments', { method: 'POST', body: JSON.stringify(payload) }),
+    verify: (id: number) => this.request<{ ledger_reference: string }>('/api/v1/payments/' + id + '/verify', { method: 'POST' }),
+    reject: (id: number, reason: string) => this.request('/api/v1/payments/' + id + '/reject', { method: 'POST', body: JSON.stringify({ reason }) }),
+    refund: (id: number, payload: { amount: string; refund_reference: string; reason: string }) => this.request<{ refund_id: number; ledger_reference: string; payment_status: string; refunded_total: string; remaining_refundable: string; net_course_paid: string; course_access_cancelled: boolean }>('/api/v1/payments/' + id + '/refund', { method: 'POST', body: JSON.stringify(payload) }),
+    ledger: () => this.request<{ items: unknown[] }>('/api/v1/payments/ledger'),
+    reconcile: () => this.request<{ balanced: boolean; discrepancies: Array<Record<string, unknown>> }>('/api/v1/payments/reconcile'),
+  };
+
   public enrollments = {
     my: (perPage = 12) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/enrollments/my?per_page=' + encodeURIComponent(String(perPage))),
     list: (status = '', perPage = 100) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/enrollments?per_page=' + encodeURIComponent(String(perPage)) + (status ? '&status=' + encodeURIComponent(status) : '')),

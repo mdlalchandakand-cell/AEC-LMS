@@ -21,6 +21,7 @@ class QuestionBankApiTest extends TestCase
             $table->string('phone', 32)->nullable();
             $table->string('password_hash', 255);
             $table->string('role', 40);
+            $table->unsignedBigInteger('branch_id')->nullable();
             $table->boolean('is_active')->default(true);
             $table->unsignedInteger('session_version')->default(1);
             $table->timestamp('created_at')->nullable();
@@ -33,6 +34,34 @@ class QuestionBankApiTest extends TestCase
             $table->string('permission_key', 100);
             $table->boolean('allowed')->default(false);
             $table->unique(['role', 'permission_key']);
+        });
+
+        Schema::create('branches', function (Blueprint $table): void {
+            $table->id();
+            $table->string('code', 32);
+            $table->string('name', 160);
+            $table->boolean('is_active')->default(true);
+        });
+        DB::table('branches')->insert([
+            ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
+        ]);
+
+        Schema::create('courses', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('title', 180);
+            $table->string('slug', 200);
+            $table->string('status', 20)->default('published');
+            $table->unsignedBigInteger('created_by');
+            $table->dateTime('deleted_at')->nullable();
+        });
+
+        Schema::create('teacher_course_assignments', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('teacher_user_id');
+            $table->boolean('is_active')->default(true);
         });
 
         Schema::create('question_bank_items', function (Blueprint $table): void {
@@ -54,6 +83,7 @@ class QuestionBankApiTest extends TestCase
 
         Schema::create('exams', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('course_id')->nullable();
             $table->string('title', 180);
             $table->decimal('total_marks', 8, 2)->default(0);
             $table->string('status', 20)->default('draft');

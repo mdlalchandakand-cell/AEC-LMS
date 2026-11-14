@@ -129,16 +129,11 @@ class SubscriptionController extends Controller
 
         $validated = $request->validate([
             'plan_id' => ['required', 'integer', 'min:1'],
-            'payment_method' => ['required', 'in:bKash,Nagad,Card,Internet Banking,Bank Transfer,Cash,Offline'],
-            'transaction_reference' => ['required', 'string', 'min:3', 'max:120'],
+            'payment_method' => ['sometimes', 'nullable', 'in:bKash,Nagad,Card,Internet Banking,Bank Transfer,Cash,Offline'],
+            'transaction_reference' => ['sometimes', 'nullable', 'string', 'min:3', 'max:120'],
             'sender_phone' => ['sometimes', 'nullable', 'string', 'max:32'],
             'proof_reference' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
-        $reference = trim($validated['transaction_reference']);
-        if ($reference === '') {
-            return response()->json(['success' => false, 'message' => 'A payment transaction reference is required.', 'error' => 'Validation failed.'], 422);
-        }
-
         try {
             $result = DB::transaction(function () use ($request, $student, $validated, $reference): array|JsonResponse {
                 $lockedUser = DB::table('users')
@@ -158,6 +153,16 @@ class SubscriptionController extends Controller
                     ->first();
                 if (!$plan) {
                     return response()->json(['success' => false, 'message' => 'Subscription plan is not available.', 'error' => 'Not found.'], 404);
+                }
+
+                $isFree = (float) $plan->price <= 0;
+                $paymentMethod = trim((string) ($validated['payment_method'] ?? ''));
+                $reference = trim((string) ($validated['transaction_reference'] ?? ''));
+                if (!$isFree && ($paymentMethod === '' || $reference === '')) {
+                    return response()->json(['success' => false, 'message' => 'Paid plans require a payment method and transaction reference.', 'error' => 'Validation failed.'], 422);
+                }
+                if ($lockedUser->branch_id !== null && !$this->hasActiveBranch($lockedUser->branch_id)) {
+                    return response()->json(['success' => false, 'message' => 'Your assigned branch is inactive. Contact support.', 'error' => 'Forbidden.'], 403);
                 }
 
                 $active = DB::table('user_subscriptions')
@@ -180,6 +185,36 @@ class SubscriptionController extends Controller
                     return response()->json(['success' => false, 'message' => 'You already have a pending subscription request.', 'error' => 'Conflict.'], 409);
                 }
 
+                if ($isFree) {
+                    $startsAt = now('Asia/Dhaka');
+                    $endsAt = $startsAt->copy()->addDays(max(1, (int) $plan->duration_days));
+                    $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
+                        'user_id' => (int) $student->id,
+                        'plan_id' => (int) $plan->id,
+                        'branch_id' => $lockedUser->branch_id,
+                        'status' => 'active',
+                        'starts_at' => $startsAt,
+                        'ends_at' => $endsAt,
+                        'amount' => $plan->price,
+                        'currency' => $plan->currency,
+                        'payment_method' => 'free',
+                        'requested_at' => now(),
+                        'reviewed_at' => now(),
+                        'created_at' => now(),
+                    ]);
+                    $this->audit($request, (int) $student->id, 'subscription.activated', $subscriptionId, ['plan_id' => (int) $plan->id, 'free_plan' => true]);
+                    $this->notify((int) $student->id, (int) $student->id, 'Subscription activated', 'Your free subscription is active until ' . $endsAt->format('Y-m-d H:i:s') . '.', 'success');
+
+                    return [
+                        'id' => $subscriptionId,
+                        'status' => 'active',
+                        'starts_at' => $startsAt->format('Y-m-d H:i:s'),
+                        'ends_at' => $endsAt->format('Y-m-d H:i:s'),
+                        'amount' => $plan->price,
+                        'currency' => $plan->currency,
+                    ];
+                }
+
                 $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
                     'user_id' => (int) $student->id,
                     'plan_id' => (int) $plan->id,
@@ -187,7 +222,7 @@ class SubscriptionController extends Controller
                     'status' => 'pending',
                     'amount' => $plan->price,
                     'currency' => $plan->currency,
-                    'payment_method' => $validated['payment_method'],
+                    'payment_method' => $paymentMethod,
                     'payment_reference' => $reference,
                     'requested_at' => now(),
                     'created_at' => now(),
@@ -198,7 +233,7 @@ class SubscriptionController extends Controller
                     'user_id' => (int) $student->id,
                     'amount' => $plan->price,
                     'currency' => $plan->currency,
-                    'payment_method' => $validated['payment_method'],
+                    'payment_method' => $paymentMethod,
                     'transaction_reference' => $reference,
                     'sender_phone' => trim((string) ($validated['sender_phone'] ?? '')) ?: null,
                     'proof_reference' => trim((string) ($validated['proof_reference'] ?? '')) ?: null,
@@ -382,23 +417,39 @@ class SubscriptionController extends Controller
             return $this->forbidden('Only students can cancel their own subscriptions.');
         }
 
-        $updated = DB::table('user_subscriptions')
-            ->where('id', $subscription)
-            ->where('user_id', $student->id)
-            ->whereIn('status', ['pending', 'active'])
-            ->update([
+        $result = DB::transaction(function () use ($request, $student, $subscription): array|JsonResponse {
+            $row = DB::table('user_subscriptions')
+                ->where('id', $subscription)
+                ->where('user_id', $student->id)
+                ->lockForUpdate()
+                ->first();
+            if (!$row || !in_array($row->status, ['pending', 'active'], true)) {
+                return response()->json(['success' => false, 'message' => 'Pending or active subscription not found.', 'error' => 'Not found.'], 404);
+            }
+
+            DB::table('user_subscriptions')->where('id', $subscription)->update([
                 'status' => 'cancelled',
                 'cancelled_at' => now(),
                 'updated_at' => now(),
             ]);
+            DB::table('subscription_payments')
+                ->where('subscription_id', $subscription)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'rejected',
+                    'review_note' => 'Cancelled by the student.',
+                    'reviewed_at' => now(),
+                ]);
+            $this->audit($request, (int) $student->id, 'subscription.cancelled', $subscription, []);
 
-        if (!$updated) {
-            return response()->json(['success' => false, 'message' => 'Pending or active subscription not found.', 'error' => 'Not found.'], 404);
+            return ['id' => $subscription, 'status' => 'cancelled'];
+        });
+
+        if ($result instanceof JsonResponse) {
+            return $result;
         }
 
-        $this->audit($request, (int) $student->id, 'subscription.cancelled', $subscription, []);
-
-        return response()->json(['success' => true, 'message' => 'Subscription cancelled.', 'data' => ['id' => $subscription, 'status' => 'cancelled']]);
+        return response()->json(['success' => true, 'message' => 'Subscription cancelled.', 'data' => $result]);
     }
 
     public function storePlan(Request $request): JsonResponse

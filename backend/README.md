@@ -138,7 +138,7 @@ The existing React exam screens and legacy `/api/exams.php` workflow are not red
 - `GET /api/v1/recycle-bin` — lists active recycle-bin items; branch managers see only items tagged to their active branch.
 - `POST /api/v1/recycle-bin/{id}/restore` — restores soft-deleted courses or content within the 30-day retention window and records the restoring user.
 - `POST /api/v1/recycle-bin/{id}/permanent-delete` — requires `recycle_bin.purge`, is unavailable before retention expires, and checks linked foreign-key records before deleting. Private-media content and records with historical references are retained with a visible purge error.
-- The Laravel purger currently handles `course` and `content` entities only. Other legacy recycle-bin types remain on the existing PHP API until their Laravel models and parity tests are completed. Permanent deletion is audited and branch-scoped.
+- Laravel restore and permanent-delete handlers support all persisted entity types: `course`, `content`, `batch`, `exam`, `cms_post`, and `cms_testimonial`. The handlers retain linked records, audit destructive actions, enforce branch scope, and do not delete private media assets.
 
 ## Laravel course progress API
 

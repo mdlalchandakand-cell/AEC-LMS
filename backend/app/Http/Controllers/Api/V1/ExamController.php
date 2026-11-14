@@ -78,14 +78,20 @@ class ExamController extends Controller
                             ->from('courses as managed_course')
                             ->whereColumn('managed_course.id', 'exams.course_id')
                             ->where(function ($scope) use ($actor): void {
-                                $scope->where('managed_course.created_by', $actor->id)
-                                    ->orWhereExists(function ($assignment) use ($actor): void {
-                                        $assignment->selectRaw('1')
-                                            ->from('teacher_course_assignments')
-                                            ->whereColumn('teacher_course_assignments.course_id', 'managed_course.id')
-                                            ->where('teacher_course_assignments.teacher_user_id', $actor->id)
-                                            ->where('teacher_course_assignments.is_active', 1);
-                                    });
+                                $scope->where(function ($creator) use ($actor): void {
+                                    $creator->where('managed_course.created_by', $actor->id);
+                                    if ($actor->branch_id === null) {
+                                        $creator->whereNull('managed_course.branch_id');
+                                    } else {
+                                        $creator->where('managed_course.branch_id', $actor->branch_id);
+                                    }
+                                })->orWhereExists(function ($assignment) use ($actor): void {
+                                    $assignment->selectRaw('1')
+                                        ->from('teacher_course_assignments')
+                                        ->whereColumn('teacher_course_assignments.course_id', 'managed_course.id')
+                                        ->where('teacher_course_assignments.teacher_user_id', $actor->id)
+                                        ->where('teacher_course_assignments.is_active', 1);
+                                });
                             });
                     });
             } elseif ($actor->role === 'branch_manager') {
@@ -359,14 +365,20 @@ class ExamController extends Controller
                     ->from('courses')
                     ->whereColumn('courses.id', 'exams.course_id')
                     ->where(function ($scope) use ($actor): void {
-                        $scope->where('courses.created_by', $actor->id)
-                            ->orWhereExists(function ($assignment) use ($actor): void {
-                                $assignment->selectRaw('1')
-                                    ->from('teacher_course_assignments')
-                                    ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
-                                    ->where('teacher_course_assignments.teacher_user_id', $actor->id)
-                                    ->where('teacher_course_assignments.is_active', 1);
-                            });
+                        $scope->where(function ($creator) use ($actor): void {
+                            $creator->where('courses.created_by', $actor->id);
+                            if ($actor->branch_id === null) {
+                                $creator->whereNull('courses.branch_id');
+                            } else {
+                                $creator->where('courses.branch_id', $actor->branch_id);
+                            }
+                        })->orWhereExists(function ($assignment) use ($actor): void {
+                            $assignment->selectRaw('1')
+                                ->from('teacher_course_assignments')
+                                ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
+                                ->where('teacher_course_assignments.teacher_user_id', $actor->id)
+                                ->where('teacher_course_assignments.is_active', 1);
+                        });
                     });
             });
         } elseif ($actor->role === 'branch_manager') {
@@ -724,14 +736,20 @@ class ExamController extends Controller
             ->where('id', $exam->course_id)
             ->whereNull('deleted_at')
             ->where(function ($scope) use ($actor): void {
-                $scope->where('created_by', $actor->id)
-                    ->orWhereExists(function ($assignment) use ($actor): void {
-                        $assignment->selectRaw('1')
-                            ->from('teacher_course_assignments')
-                            ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
-                            ->where('teacher_course_assignments.teacher_user_id', $actor->id)
-                            ->where('teacher_course_assignments.is_active', 1);
-                    });
+                $scope->where(function ($creator) use ($actor): void {
+                    $creator->where('created_by', $actor->id);
+                    if ($actor->branch_id === null) {
+                        $creator->whereNull('branch_id');
+                    } else {
+                        $creator->where('branch_id', $actor->branch_id);
+                    }
+                })->orWhereExists(function ($assignment) use ($actor): void {
+                    $assignment->selectRaw('1')
+                        ->from('teacher_course_assignments')
+                        ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
+                        ->where('teacher_course_assignments.teacher_user_id', $actor->id)
+                        ->where('teacher_course_assignments.is_active', 1);
+                });
             })
             ->exists();
     }

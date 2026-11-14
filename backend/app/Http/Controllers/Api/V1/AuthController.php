@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
 class AuthController extends Controller
@@ -98,6 +100,51 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Logged out.',
             'data' => null,
+        ]);
+    }
+
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string', 'max:4096'],
+            'new_password' => ['required', 'string', 'min:12', 'max:4096', 'different:current_password'],
+        ]);
+
+        /** @var User $user */
+        $user = $request->user();
+
+        if (!Hash::check($validated['current_password'], $user->getAuthPassword())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Current password is incorrect.',
+                'error' => 'Current password is incorrect.',
+            ], 422);
+        }
+
+        $nextVersion = (int) $user->session_version + 1;
+        $user->forceFill([
+            'password_hash' => Hash::make($validated['new_password']),
+            'session_version' => $nextVersion,
+        ])->save();
+
+        DB::table('audit_logs')->insert([
+            'user_id' => $user->id,
+            'action' => 'user.password_changed',
+            'entity_type' => 'user',
+            'entity_id' => $user->id,
+            'ip_address' => substr((string) $request->ip(), 0, 45),
+            'metadata' => json_encode(['method' => 'authenticated'], JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+
+        $request->session()->put('aec_session_version', $nextVersion);
+        $request->session()->regenerate();
+        $request->session()->regenerateToken();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password updated.',
+            'data' => ['csrf_token' => $request->session()->token()],
         ]);
     }
 

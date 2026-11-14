@@ -23,10 +23,7 @@ function aec_recycle_scope(PDO $db, array $actor, array $item): void {
     if ($actor['role'] === 'branch_manager') {
         $branchId = (int)($actor['branch_id'] ?? 0);
         $itemBranchId = $item['branch_id'] === null ? 0 : (int)$item['branch_id'];
-        // Global entities (content/exams/CMS) have no branch column. A manager may
-        // only manage a legacy/global recycle record that they personally deleted.
-        $isOwnGlobalRecord = $itemBranchId === 0 && (int)($item['deleted_by'] ?? 0) === (int)$actor['id'];
-        if ($branchId < 1 || ($itemBranchId !== $branchId && !$isOwnGlobalRecord)) {
+        if ($branchId < 1 || $itemBranchId !== $branchId) {
             aec_recycle_abort($db, 'This recycle-bin item is outside your assigned branch.', 403);
         }
     }
@@ -116,8 +113,7 @@ if ($action === 'list') {
     $expiredSql = "SELECT * FROM recycle_bin_items WHERE status = 'active' AND expires_at <= NOW()";
     $expiredParams = [];
     if ($actor['role'] === 'branch_manager') {
-        $expiredSql .= ' AND (branch_id = ? OR (branch_id IS NULL AND deleted_by = ?))';
-        $expiredParams[] = (int)$actor['branch_id']; $expiredParams[] = (int)$actor['id'];
+        $expiredSql .= ' AND branch_id = ?'; $expiredParams[] = (int)$actor['branch_id'];
     }
     $expiredStmt = $db->prepare($expiredSql); $expiredStmt->execute($expiredParams);
     foreach ($expiredStmt->fetchAll() as $expired) {
@@ -144,8 +140,7 @@ if ($action === 'list') {
         WHERE r.status = 'active'";
     $params = [];
     if ($actor['role'] === 'branch_manager') {
-        $sql .= ' AND (r.branch_id = ? OR (r.branch_id IS NULL AND r.deleted_by = ?))';
-        $params[] = (int)$actor['branch_id']; $params[] = (int)$actor['id'];
+        $sql .= ' AND r.branch_id = ?'; $params[] = (int)$actor['branch_id'];
     }
     $sql .= ' ORDER BY r.deleted_at DESC, r.id DESC LIMIT 1000';
     $stmt = $db->prepare($sql); $stmt->execute($params);
@@ -237,8 +232,7 @@ if ($action === 'empty') {
     $sql = "SELECT * FROM recycle_bin_items WHERE status = 'active'";
     $params = [];
     if ($actor['role'] === 'branch_manager') {
-        $sql .= ' AND (branch_id = ? OR (branch_id IS NULL AND deleted_by = ?))';
-        $params[] = (int)$actor['branch_id']; $params[] = (int)$actor['id'];
+        $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id'];
     }
     $sql .= ' ORDER BY deleted_at ASC';
     $stmt = $db->prepare($sql); $stmt->execute($params);

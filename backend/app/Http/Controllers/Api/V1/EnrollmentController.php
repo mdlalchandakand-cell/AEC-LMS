@@ -272,7 +272,7 @@ class EnrollmentController extends Controller
         $validated = $request->validate([
             'status' => ['sometimes', 'in:pending,active,completed,cancelled'],
             'starts_at' => ['sometimes', 'nullable', 'date'],
-            'ends_at' => ['sometimes', 'nullable', 'date', 'after_or_equal:starts_at'],
+            'ends_at' => ['sometimes', 'nullable', 'date'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
         ]);
 
@@ -297,6 +297,16 @@ class EnrollmentController extends Controller
                 'message' => 'Enrollment not found.',
                 'error' => 'Not found.',
             ], 404);
+        }
+
+        $startAt = array_key_exists('starts_at', $validated) ? $validated['starts_at'] : $current->starts_at;
+        $endAt = array_key_exists('ends_at', $validated) ? $validated['ends_at'] : $current->ends_at;
+        if ($startAt && $endAt && strtotime((string) $endAt) < strtotime((string) $startAt)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The enrollment end date must not be before its start date.',
+                'error' => 'Validation failed.',
+            ], 422);
         }
 
         $changes = [];

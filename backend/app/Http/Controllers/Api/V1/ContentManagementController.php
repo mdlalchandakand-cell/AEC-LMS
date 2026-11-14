@@ -47,6 +47,20 @@ class ContentManagementController extends Controller
                             ->where('teacher_course_assignments.teacher_user_id', $actor->id)
                             ->where('teacher_course_assignments.is_active', 1);
                     });
+            })->whereNotExists(function ($foreign) use ($actor): void {
+                $foreign->selectRaw('1')
+                    ->from('course_content as foreign_links')
+                    ->join('courses as foreign_courses', 'foreign_courses.id', '=', 'foreign_links.course_id')
+                    ->whereColumn('foreign_links.content_item_id', 'content.id')
+                    ->whereNull('foreign_courses.deleted_at')
+                    ->where(function ($scope) use ($actor): void {
+                        if ($actor->branch_id === null) {
+                            $scope->whereNotNull('foreign_courses.branch_id');
+                        } else {
+                            $scope->whereNull('foreign_courses.branch_id')
+                                ->orWhere('foreign_courses.branch_id', '<>', $actor->branch_id);
+                        }
+                    });
             });
         } elseif (!LmsPermission::allows($actor, 'content.manage')) {
             return $this->forbidden('You do not have permission to manage course content.');

@@ -125,8 +125,8 @@ class LaravelApiService {
 
   public certificates = {
     mine: () => this.request<{ items: unknown[] }>('/api/v1/certificates/my'),
-    list: () => this.request<{ items: unknown[] }>('/api/v1/certificates'),
-    students: () => this.request<{ items: unknown[] }>('/api/v1/certificates/students'),
+    list: (search = '') => this.request<{ items: unknown[] }>('/api/v1/certificates' + (search ? '?search=' + encodeURIComponent(search) : '')),
+    students: (search = '') => this.request<{ items: unknown[] }>('/api/v1/certificates/students' + (search ? '?search=' + encodeURIComponent(search) : '')),
     issue: (payload: Record<string, unknown>) => this.request('/api/v1/certificates', { method: 'POST', body: JSON.stringify(payload) }),
     revoke: (id: number, reason: string) => this.request('/api/v1/certificates/' + id + '/revoke', { method: 'POST', body: JSON.stringify({ reason }) }),
     verify: (number: string) => this.request('/api/v1/certificates/verify/' + encodeURIComponent(number)),

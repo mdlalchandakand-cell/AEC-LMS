@@ -17,6 +17,7 @@ export const RecycleBinManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItemToDelete, setSelectedItemToDelete] = useState<RecycleBinItem | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   const filteredItems = recycleBin.filter(item => {
     const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -25,25 +26,42 @@ export const RecycleBinManager: React.FC = () => {
     return matchesSearch && matchesType;
   });
 
-  const handleRestore = (item: RecycleBinItem) => {
-    restoreFromRecycleBin(item.id);
-    setSuccessBanner(isBn ? `"${item.title}" সফলভাবে রিস্টোর করা হয়েছে!` : `"${item.title}" successfully restored!`);
-    setTimeout(() => setSuccessBanner(null), 3000);
+  const handleRestore = async (item: RecycleBinItem) => {
+    const success = await restoreFromRecycleBin(item.id);
+    if (success) {
+      setSuccessBanner(isBn ? `"${item.title}" সফলভাবে রিস্টোর করা হয়েছে!` : `"${item.title}" successfully restored!`);
+      setErrorBanner(null);
+      setTimeout(() => setSuccessBanner(null), 3000);
+      return;
+    }
+
+    setErrorBanner(isBn ? 'রিস্টোর ব্যর্থ হয়েছে। আবার চেষ্টা করুন।' : 'Restore failed. Please try again.');
+    setSuccessBanner(null);
+    setTimeout(() => setErrorBanner(null), 3000);
   };
 
-  const handleConfirmPermanentDelete = () => {
-    if (selectedItemToDelete) {
-      permanentDeleteFromRecycleBin(selectedItemToDelete.id);
+  const handleConfirmPermanentDelete = async () => {
+    if (!selectedItemToDelete) return;
+
+    const success = await permanentDeleteFromRecycleBin(selectedItemToDelete.id);
+    if (success) {
       setSuccessBanner(isBn ? 'রেকর্ডটি স্থায়ীভাবে মুছে ফেলা হয়েছে।' : 'Item permanently erased.');
+      setErrorBanner(null);
       setSelectedItemToDelete(null);
       setTimeout(() => setSuccessBanner(null), 3000);
+      return;
     }
+
+    setErrorBanner(isBn ? 'স্থায়ীভাবে মুছে ফেলা সম্ভব হয়নি।' : 'Permanent purge failed.');
+    setSuccessBanner(null);
+    setTimeout(() => setErrorBanner(null), 3000);
   };
 
   const handleEmptyAll = () => {
-    if (window.confirm(isBn ? 'আপনি কি সম্পূর্ণ রিসাইকেল বিন খালি করতে নিশ্চিত?' : 'Are you sure you want to permanently empty the entire Recycle Bin?')) {
+    if (window.confirm(isBn ? 'আপনি কি সম্পূর্ণ রিসাইকেল বিন খালি করতে নিশ্চিত?' : 'Are you sure you want to permanently empty the recycle bin?')) {
       emptyRecycleBin();
       setSuccessBanner(isBn ? 'রিসাইকেল বিন সম্পূর্ণ খালি করা হয়েছে।' : 'Recycle Bin emptied.');
+      setErrorBanner(null);
       setTimeout(() => setSuccessBanner(null), 3000);
     }
   };
@@ -64,7 +82,7 @@ export const RecycleBinManager: React.FC = () => {
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {isBn 
-              ? 'ভুলবশত মুছে ফেলা কোর্স, ব্যাচ ও সার্কুলার ৩০ দিনের মধ্যে যেকোনো সময় আগের অবস্থায় রিস্টোর করুন।'
+              ? 'ভুলবশত মুছে ফেলা কোর্স, ব্যাচ ও সার্কুলার ৩০ দিনের মধ্যে যেকোনো সময় রিস্টোর করা যায়।'
               : 'Safeguard against accidental deletions. Restore removed courses, cohorts, and exams with 1-click.'}
           </p>
         </div>
@@ -72,7 +90,7 @@ export const RecycleBinManager: React.FC = () => {
         {recycleBin.length > 0 && (
           <button
             onClick={handleEmptyAll}
-            className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors cursor-pointer self-start sm:self-auto"
+            className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors cursor-pointer self-start"
           >
             <Trash2 className="w-4 h-4 text-rose-600" />
             <span>{isBn ? 'সম্পূর্ণ ট্র্যাশ খালি করুন' : 'Empty Trash'}</span>
@@ -80,11 +98,18 @@ export const RecycleBinManager: React.FC = () => {
         )}
       </div>
 
-      {/* Success Banner */}
+      {/* Success / Error Banner */}
       {successBanner && (
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{successBanner}</span>
+        </div>
+      )}
+
+      {errorBanner && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
+          <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{errorBanner}</span>
         </div>
       )}
 
@@ -136,7 +161,7 @@ export const RecycleBinManager: React.FC = () => {
             </h3>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
               {isBn 
-                ? 'কোনো মুছে ফেলা আইটেম নেই। আপনার ডাটাবেজের সকল তথ্য সক্রিয় ও সুরক্ষিত রয়েছে।'
+                ? 'কোনো মুছে ফেলা আইটেম নেই। আপনার ডাটাবেজের সকল তথ্য সক্রিয় ও সুরক্ষিত।'
                 : 'No soft-deleted records found. System data is healthy and secure.'}
             </p>
           </div>
@@ -180,7 +205,7 @@ export const RecycleBinManager: React.FC = () => {
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button
-                          onClick={() => handleRestore(item)}
+                          onClick={() => void handleRestore(item)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg transition-colors cursor-pointer"
                           title="Restore to active system"
                         >
@@ -220,7 +245,7 @@ export const RecycleBinManager: React.FC = () => {
               </h3>
               <p className="text-xs text-slate-500 leading-relaxed">
                 {isBn 
-                  ? `আপনি কি নিশ্চিতভাবে "${selectedItemToDelete.title}" স্থায়ীভাবে মুছে ফেলতে চান? এটি ডাটাবেজ থেকে সম্পূর্ণ মুছে যাবে এবং পুনরায় রিস্টোর করা সম্ভব হবে না।`
+                  ? `আপনি কি নিশ্চিতভাবে "${selectedItemToDelete.title}" স্থায়ীভাবে মুছে ফেলতে চান? এটি ডাটা恢复 করা সম্ভব নয়।`
                   : `Are you sure you want to permanently erase "${selectedItemToDelete.title}"? This cannot be restored.`}
               </p>
             </div>
@@ -233,7 +258,7 @@ export const RecycleBinManager: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={handleConfirmPermanentDelete}
+                onClick={() => void handleConfirmPermanentDelete()}
                 className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs shadow-xs"
               >
                 Yes, Purge Permanently
@@ -245,3 +270,4 @@ export const RecycleBinManager: React.FC = () => {
     </div>
   );
 };
+

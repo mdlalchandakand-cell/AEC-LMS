@@ -50,6 +50,27 @@ class ContentManagementController extends Controller
             });
         } elseif (!LmsPermission::allows($actor, 'content.manage')) {
             return $this->forbidden('You do not have permission to manage course content.');
+        } elseif ($actor->role === 'branch_manager') {
+            if (!$this->hasActiveBranch($actor->branch_id)) {
+                return $this->forbidden('Your account is not assigned to an active branch.');
+            }
+            $query->whereExists(function ($own) use ($actor): void {
+                $own->selectRaw('1')
+                    ->from('course_content as own_links')
+                    ->join('courses as own_courses', 'own_courses.id', '=', 'own_links.course_id')
+                    ->whereColumn('own_links.content_item_id', 'content.id')
+                    ->where('own_courses.branch_id', $actor->branch_id)
+                    ->whereNull('own_courses.deleted_at');
+            })->whereNotExists(function ($foreign) use ($actor): void {
+                $foreign->selectRaw('1')
+                    ->from('course_content as foreign_links')
+                    ->join('courses as foreign_courses', 'foreign_courses.id', '=', 'foreign_links.course_id')
+                    ->whereColumn('foreign_links.content_item_id', 'content.id')
+                    ->where(function ($scope) use ($actor): void {
+                        $scope->whereNull('foreign_courses.branch_id')
+                            ->orWhere('foreign_courses.branch_id', '<>', $actor->branch_id);
+                    });
+            });
         }
 
         $items = $query->orderByDesc('content.created_at')->orderByDesc('content.id')->limit(500)->get();
@@ -69,6 +90,7 @@ class ContentManagementController extends Controller
             ->join('courses', 'courses.id', '=', 'links.course_id')
             ->where('links.content_item_id', $content)
             ->whereNull('courses.deleted_at')
+            ->when($actor->role === 'branch_manager', fn ($query) => $query->where('courses.branch_id', $actor->branch_id))
             ->orderBy('links.sort_order')
             ->orderBy('links.id')
             ->get([
@@ -131,7 +153,7 @@ class ContentManagementController extends Controller
                 'created_at' => now(),
             ]);
 
-            $this->audit($actor->id, 'content.created', $id, ['course_id' => (int) $validated['course_id']]);
+            $this->audit($request, (int) $actor->id, 'content.created', $id, ['course_id' => (int) $validated['course_id']]);
 
             return $id;
         });
@@ -173,7 +195,7 @@ class ContentManagementController extends Controller
             'updated_at' => now(),
         ]);
 
-        $this->audit($actor->id, 'content.updated', $content, []);
+        $this->audit($request, (int) $actor->id, 'content.updated', $content, []);
 
         return response()->json(['success' => true, 'message' => 'Content updated.', 'data' => ['id' => $content]]);
     }
@@ -283,7 +305,7 @@ class ContentManagementController extends Controller
                 ->where('course_id', $course->id)
                 ->where('content_item_id', $item->id)
                 ->delete();
-            $this->audit($actor->id, 'content.unlinked', (int) $item->id, ['course_id' => (int) $course->id]);
+            $this->audit($request, (int) $actor->id, 'content.unlinked', (int) $item->id, ['course_id' => (int) $course->id]);
 
             return response()->json(['success' => true, 'message' => 'Content unlinked from course.']);
         }
@@ -299,7 +321,7 @@ class ContentManagementController extends Controller
             ['course_id', 'content_item_id'],
             ['sort_order', 'is_preview']
         );
-        $this->audit($actor->id, 'content.linked', (int) $item->id, ['course_id' => (int) $course->id]);
+        $this->audit($request, (int) $actor->id, 'content.linked', (int) $item->id, ['course_id' => (int) $course->id]);
 
         return response()->json(['success' => true, 'message' => 'Content linked to course.']);
     }
@@ -319,7 +341,34 @@ class ContentManagementController extends Controller
                 ->exists();
         }
 
-        return LmsPermission::allows($actor, 'content.manage');
+        if (!LmsPermission::allows($actor, 'content.manage')) {
+            return false;
+        }
+
+        if ($actor->role === 'branch_manager') {
+            if (!$this->hasActiveBranch($actor->branch_id)) {
+                return false;
+            }
+
+            $hasOwnBranchLink = DB::table('course_content as links')
+                ->join('courses', 'courses.id', '=', 'links.course_id')
+                ->where('links.content_item_id', $item->id)
+                ->where('courses.branch_id', $actor->branch_id)
+                ->whereNull('courses.deleted_at')
+                ->exists();
+            $hasForeignLink = DB::table('course_content as links')
+                ->join('courses', 'courses.id', '=', 'links.course_id')
+                ->where('links.content_item_id', $item->id)
+                ->where(function ($scope) use ($actor): void {
+                    $scope->whereNull('courses.branch_id')
+                        ->orWhere('courses.branch_id', '<>', $actor->branch_id);
+                })
+                ->exists();
+
+            return $hasOwnBranchLink && !$hasForeignLink;
+        }
+
+        return true;
     }
 
     private function canManageCourse($actor, object $course): bool

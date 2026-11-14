@@ -46,7 +46,7 @@ class TeacherCommissionController extends Controller
         }
 
         if ($teacherId !== null) {
-            $totals = $this->payoutTotals($teacherId);
+            $totals = $this->payoutTotals($teacherId, $branchId);
         } else {
             $totals = $this->payoutTotals(null, $branchId);
         }
@@ -375,6 +375,9 @@ class TeacherCommissionController extends Controller
         if (!LmsPermission::allows($actor, 'teacher_commissions.payouts.manage')) {
             return $this->forbidden('You do not have permission to review payouts.');
         }
+        if ($actor->role === 'branch_manager' && !$this->hasActiveBranch($actor->branch_id)) {
+            return $this->forbidden('Your account is not assigned to an active branch.');
+        }
 
         $validated = $request->validate([
             'decision' => ['required', 'in:approve,reject'],
@@ -449,6 +452,9 @@ class TeacherCommissionController extends Controller
         $actor = $request->user();
         if (!LmsPermission::allows($actor, 'teacher_commissions.payouts.manage')) {
             return $this->forbidden('You do not have permission to settle payouts.');
+        }
+        if ($actor->role === 'branch_manager' && !$this->hasActiveBranch($actor->branch_id)) {
+            return $this->forbidden('Your account is not assigned to an active branch.');
         }
 
         $validated = $request->validate([

@@ -250,6 +250,7 @@ class RecycleBinController extends Controller
         return match ($type) {
             'course' => 'courses',
             'content' => 'content_items',
+            'exam' => 'exams',
             default => null,
         };
     }

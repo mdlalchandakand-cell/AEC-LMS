@@ -92,6 +92,13 @@ Teacher course ownership is checked server-side; changing an ID in the request c
 
 Teacher access is restricted to content/course ownership and active assignments; branch managers cannot modify content shared across other branches. Media links must use HTTPS.
 
+## Laravel recycle-bin API
+
+- `GET /api/v1/recycle-bin` — lists active recycle-bin items; branch managers see only items tagged to their active branch.
+- `POST /api/v1/recycle-bin/{id}/restore` — restores soft-deleted courses or content within the 30-day retention window and records the restoring user.
+- `POST /api/v1/recycle-bin/{id}/permanent-delete` — requires `recycle_bin.purge`, is unavailable before retention expires, and checks linked foreign-key records before deleting. Private-media content and records with historical references are retained with a visible purge error.
+- The Laravel purger currently handles `course` and `content` entities only. Other legacy recycle-bin types remain on the existing PHP API until their Laravel models and parity tests are completed. Permanent deletion is audited and branch-scoped.
+
 ## Laravel course progress API
 
 - `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.

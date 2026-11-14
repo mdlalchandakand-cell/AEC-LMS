@@ -368,14 +368,6 @@ class QuestionBankController extends Controller
         ]);
     }
 
-    private function hasActiveBranch(mixed $branchId): bool
-    {
-        return $branchId !== null && DB::table('branches')
-            ->where('id', $branchId)
-            ->where('is_active', 1)
-            ->exists();
-    }
-
     private function forbidden(string $message): JsonResponse
     {
         return response()->json(['success' => false, 'message' => $message, 'error' => 'Forbidden.'], 403);

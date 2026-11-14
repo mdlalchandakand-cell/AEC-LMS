@@ -14,10 +14,20 @@ function aec_recycle_audit(PDO $db, array $actor, string $event, array $item, ar
     ]);
 }
 
-function aec_recycle_scope(array $actor, array $item): void {
+function aec_recycle_abort(PDO $db, string $message, int $status): never {
+    if ($db->inTransaction()) $db->rollBack();
+    aec_fail($message, $status);
+}
+
+function aec_recycle_scope(PDO $db, array $actor, array $item): void {
     if ($actor['role'] === 'branch_manager') {
-        if (empty($actor['branch_id']) || $item['branch_id'] === null || (int)$item['branch_id'] !== (int)$actor['branch_id']) {
-            aec_fail('This recycle-bin item is outside your assigned branch.', 403);
+        $branchId = (int)($actor['branch_id'] ?? 0);
+        $itemBranchId = $item['branch_id'] === null ? 0 : (int)$item['branch_id'];
+        // Global entities (content/exams/CMS) have no branch column. A manager may
+        // only manage a legacy/global recycle record that they personally deleted.
+        $isOwnGlobalRecord = $itemBranchId === 0 && (int)($item['deleted_by'] ?? 0) === (int)$actor['id'];
+        if ($branchId < 1 || ($itemBranchId !== $branchId && !$isOwnGlobalRecord)) {
+            aec_recycle_abort($db, 'This recycle-bin item is outside your assigned branch.', 403);
         }
     }
 }
@@ -45,6 +55,7 @@ function aec_recycle_purge(PDO $db, array $actor, array $item): array {
             'live_classes' => 'course_id',
             'teacher_course_assignments' => 'course_id',
             'batches' => 'course_id',
+            'course_lesson_progress' => 'course_id',
         ];
         foreach ($checks as $table => $column) {
             $stmt = $db->prepare("SELECT COUNT(*) FROM {$table} WHERE {$column} = ?");
@@ -56,10 +67,14 @@ function aec_recycle_purge(PDO $db, array $actor, array $item): array {
         $stmt = $db->prepare('SELECT COUNT(*) FROM course_content WHERE content_item_id = ?');
         $stmt->execute([$entityId]);
         $linkedCount = (int)$stmt->fetchColumn();
+        $progress = $db->prepare('SELECT COUNT(*) FROM course_lesson_progress WHERE content_item_id = ?');
+        $progress->execute([$entityId]);
+        $progressCount = (int)$progress->fetchColumn();
         $media = $db->prepare('SELECT COUNT(*) FROM media_assets WHERE content_item_id = ?');
         $media->execute([$entityId]);
         $mediaCount = (int)$media->fetchColumn();
         if ($linkedCount > 0) $blocked = 'Content is linked to one or more courses; unlink it before permanent deletion.';
+        elseif ($progressCount > 0) $blocked = 'Content has student lesson-progress history; retain the record to protect learning history.';
         elseif ($mediaCount > 0) $blocked = 'Content has private media files; remove those files through the media manager before permanent deletion.';
         else $db->prepare('DELETE FROM content_items WHERE id = ? AND deleted_at IS NOT NULL')->execute([$entityId]);
     } elseif ($type === 'batch') {
@@ -101,13 +116,20 @@ if ($action === 'list') {
     $expiredSql = "SELECT * FROM recycle_bin_items WHERE status = 'active' AND expires_at <= NOW()";
     $expiredParams = [];
     if ($actor['role'] === 'branch_manager') {
-        $expiredSql .= ' AND branch_id = ?'; $expiredParams[] = (int)$actor['branch_id'];
+        $expiredSql .= ' AND (branch_id = ? OR (branch_id IS NULL AND deleted_by = ?))';
+        $expiredParams[] = (int)$actor['branch_id']; $expiredParams[] = (int)$actor['id'];
     }
     $expiredStmt = $db->prepare($expiredSql); $expiredStmt->execute($expiredParams);
     foreach ($expiredStmt->fetchAll() as $expired) {
         $db->beginTransaction();
         try {
-            aec_recycle_purge($db, $actor, $expired);
+            $lock = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' AND expires_at <= NOW() FOR UPDATE");
+            $lock->execute([(int)$expired['id']]);
+            $lockedExpired = $lock->fetch();
+            if ($lockedExpired) {
+                aec_recycle_scope($db, $actor, $lockedExpired);
+                aec_recycle_purge($db, $actor, $lockedExpired);
+            }
             $db->commit();
         } catch (Throwable $error) {
             if ($db->inTransaction()) $db->rollBack();
@@ -121,7 +143,10 @@ if ($action === 'list') {
         FROM recycle_bin_items r LEFT JOIN users u ON u.id = r.deleted_by
         WHERE r.status = 'active'";
     $params = [];
-    if ($actor['role'] === 'branch_manager') { $sql .= ' AND r.branch_id = ?'; $params[] = (int)$actor['branch_id']; }
+    if ($actor['role'] === 'branch_manager') {
+        $sql .= ' AND (r.branch_id = ? OR (r.branch_id IS NULL AND r.deleted_by = ?))';
+        $params[] = (int)$actor['branch_id']; $params[] = (int)$actor['id'];
+    }
     $sql .= ' ORDER BY r.deleted_at DESC, r.id DESC LIMIT 1000';
     $stmt = $db->prepare($sql); $stmt->execute($params);
     aec_ok($stmt->fetchAll());
@@ -138,8 +163,8 @@ if ($action === 'restore') {
     try {
         $stmt = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' LIMIT 1 FOR UPDATE");
         $stmt->execute([$id]); $item = $stmt->fetch();
-        if (!$item) aec_fail('Active recycle-bin item not found.', 404);
-        aec_recycle_scope($actor, $item);
+        if (!$item) aec_recycle_abort($db, 'Active recycle-bin item not found.', 404);
+        aec_recycle_scope($db, $actor, $item);
         $snapshot = aec_recycle_snapshot($item);
         $entityId = (int)$item['entity_id'];
         $type = (string)$item['entity_type'];
@@ -156,7 +181,7 @@ if ($action === 'restore') {
         } elseif ($type === 'batch') {
             $duplicate = $db->prepare('SELECT id FROM batches WHERE branch_scope_id = COALESCE(?, 0) AND batch_code = (SELECT batch_code FROM batches WHERE id = ?) AND id <> ? AND deleted_at IS NULL LIMIT 1');
             $duplicate->execute([$item['branch_id'], $entityId, $entityId]);
-            if ($duplicate->fetchColumn()) aec_fail('Another active batch uses this code. Rename the other batch before restoring.', 409);
+            if ($duplicate->fetchColumn()) aec_recycle_abort($db, 'Another active batch uses this code. Rename the other batch before restoring.', 409);
             $restore = $db->prepare('UPDATE batches SET deleted_at = NULL, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL');
             $restore->execute([$entityId]); $restored = $restore->rowCount();
         } elseif ($type === 'exam') {
@@ -169,7 +194,7 @@ if ($action === 'restore') {
             $restore = $db->prepare('UPDATE cms_testimonials SET deleted_at = NULL, status = ?, updated_at = NOW() WHERE id = ? AND deleted_at IS NOT NULL');
             $restore->execute([(string)($snapshot['status'] ?? 'draft'), $entityId]); $restored = $restore->rowCount();
         }
-        if (!$restored) aec_fail('The original record is unavailable or has already been restored.', 409);
+        if (!$restored) aec_recycle_abort($db, 'The original record is unavailable or has already been restored.', 409);
         $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW(), purge_error = NULL WHERE id = ?")
             ->execute([(int)$actor['id'], $id]);
         aec_recycle_audit($db, $actor, 'recycle_bin.restored', $item);
@@ -211,13 +236,23 @@ if ($action === 'empty') {
     aec_csrf_check();
     $sql = "SELECT * FROM recycle_bin_items WHERE status = 'active'";
     $params = [];
-    if ($actor['role'] === 'branch_manager') { $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id']; }
+    if ($actor['role'] === 'branch_manager') {
+        $sql .= ' AND (branch_id = ? OR (branch_id IS NULL AND deleted_by = ?))';
+        $params[] = (int)$actor['branch_id']; $params[] = (int)$actor['id'];
+    }
     $sql .= ' ORDER BY deleted_at ASC';
     $stmt = $db->prepare($sql); $stmt->execute($params);
     $purged = 0; $blocked = [];
-    foreach ($stmt->fetchAll() as $item) {
+    foreach ($stmt->fetchAll() as $candidate) {
         $db->beginTransaction();
         try {
+            // Re-read and lock each candidate inside its transaction. Restore and
+            // another purge request can otherwise race with this stale result set.
+            $lock = $db->prepare("SELECT * FROM recycle_bin_items WHERE id = ? AND status = 'active' FOR UPDATE");
+            $lock->execute([(int)$candidate['id']]);
+            $item = $lock->fetch();
+            if (!$item) { $db->commit(); continue; }
+            aec_recycle_scope($db, $actor, $item);
             $result = aec_recycle_purge($db, $actor, $item);
             if ($result['purged']) $purged++;
             else $blocked[] = ['id' => (int)$item['id'], 'title' => $item['title'], 'reason' => $result['reason']];

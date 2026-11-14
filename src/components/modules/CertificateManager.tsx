@@ -1,9 +1,27 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Award, Search, Plus, Printer, ShieldCheck, X, Ban, RefreshCw } from 'lucide-react';
 import { apiClient, CertificateApiRecord } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 
 interface StudentOption { id: number; name: string; email: string; }
 interface CourseOption { id: number; title: string; }
+
+const normalizeLaravelCertificate = (row: Record<string, unknown>): CertificateApiRecord => ({
+  id: Number(row.id),
+  certificateNumber: String(row.certificate_number || ''),
+  studentUserId: Number(row.student_user_id || 0),
+  studentId: String(row.student_id_snapshot || ''),
+  studentName: String(row.student_name_snapshot || ''),
+  courseId: Number(row.course_id || 0),
+  courseTitle: String(row.course_title_snapshot || ''),
+  completionDate: String(row.completion_date || ''),
+  grade: String(row.grade || ''),
+  issueDate: String(row.issued_at || row.issue_date || ''),
+  authorizedBy: String(row.authorized_by || ''),
+  status: row.status === 'revoked' ? 'revoked' : 'issued',
+  revokedAt: row.revoked_at ? String(row.revoked_at) : null,
+  revokeReason: row.revoke_reason ? String(row.revoke_reason) : null,
+});
 
 export const CertificateManager: React.FC = () => {
   const [courses, setCourses] = useState<CourseOption[]>([]);
@@ -27,14 +45,23 @@ export const CertificateManager: React.FC = () => {
     setLoading(true);
     setError('');
     const [certResult, studentResult, courseResult] = await Promise.all([
-      apiClient.certificates.getAll(query),
-      apiClient.certificates.getStudents(studentSearch),
+      isLaravelApiEnabled ? laravelApiClient.certificates.list(query) : apiClient.certificates.getAll(query),
+      isLaravelApiEnabled ? laravelApiClient.certificates.students(studentSearch) : apiClient.certificates.getStudents(studentSearch),
       apiClient.courses.getAll(),
     ]);
-    if (certResult.success && certResult.data) setCertificates(certResult.data);
-    else setError(certResult.error || 'Could not load certificates from the server.');
-    if (studentResult.success && studentResult.data) {
-      setStudents(studentResult.data);
+    const certificateRows = isLaravelApiEnabled
+      ? (certResult.data as { items?: unknown[] } | undefined)?.items
+      : certResult.data;
+    const studentRows = isLaravelApiEnabled
+      ? (studentResult.data as { items?: unknown[] } | undefined)?.items
+      : studentResult.data;
+    if (certResult.success && Array.isArray(certificateRows)) {
+      setCertificates(isLaravelApiEnabled
+        ? (certificateRows as Array<Record<string, unknown>>).map(normalizeLaravelCertificate)
+        : certificateRows as CertificateApiRecord[]);
+    } else setError(certResult.error || 'Could not load certificates from the server.');
+    if (studentResult.success && Array.isArray(studentRows)) {
+      setStudents(studentRows as StudentOption[]);
     } else if (!studentResult.success) {
       setError(studentResult.error || 'Could not load student accounts.');
     }
@@ -52,7 +79,9 @@ export const CertificateManager: React.FC = () => {
     setSaving(true);
     setError('');
     setSuccess('');
-    const result = await apiClient.certificates.issue(Number(studentId), Number(courseId), grade.trim());
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.certificates.issue({ student_user_id: Number(studentId), course_id: Number(courseId), grade: grade.trim() })
+      : await apiClient.certificates.issue(Number(studentId), Number(courseId), grade.trim());
     setSaving(false);
     if (!result.success) {
       setError(result.error || 'Certificate could not be issued.');
@@ -62,7 +91,10 @@ export const CertificateManager: React.FC = () => {
     setStudentId('');
     setStudentSearch('');
     setGrade('Completed');
-    setSuccess(`Certificate issued: ${result.data?.certificate_number || 'saved successfully'}`);
+    const issuedNumber = isLaravelApiEnabled
+      ? String((result.data as Record<string, unknown> | undefined)?.certificate_number || 'saved successfully')
+      : result.data?.certificate_number || 'saved successfully';
+    setSuccess(`Certificate issued: ${issuedNumber}`);
     await refresh();
   };
 
@@ -71,7 +103,9 @@ export const CertificateManager: React.FC = () => {
     if (!revokeTarget || !revokeReason.trim()) return;
     setSaving(true);
     setSuccess('');
-    const result = await apiClient.certificates.revoke(revokeTarget.id, revokeReason.trim());
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.certificates.revoke(revokeTarget.id, revokeReason.trim())
+      : await apiClient.certificates.revoke(revokeTarget.id, revokeReason.trim());
     setSaving(false);
     if (!result.success) {
       setError(result.error || 'Certificate could not be revoked.');

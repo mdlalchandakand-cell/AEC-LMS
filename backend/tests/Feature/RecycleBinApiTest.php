@@ -71,6 +71,15 @@ class RecycleBinApiTest extends TestCase
             $table->dateTime('updated_at')->nullable();
         });
 
+        foreach (['batches', 'exams', 'cms_posts', 'cms_testimonials'] as $tableName) {
+            Schema::create($tableName, function (Blueprint $table): void {
+                $table->id();
+                $table->string('status', 20)->default('draft');
+                $table->dateTime('deleted_at')->nullable();
+                $table->dateTime('updated_at')->nullable();
+            });
+        }
+
         Schema::create('course_enrollments', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('course_id');
@@ -241,6 +250,39 @@ class RecycleBinApiTest extends TestCase
             'action' => 'recycle_bin.permanently_deleted',
             'entity_id' => $courseId,
         ]);
+    }
+
+    public function test_batch_exam_and_cms_items_can_be_restored(): void
+    {
+        $this->createUser('admin@example.test', 'super_admin');
+        $this->login('admin@example.test');
+
+        $entities = [
+            'batch' => 'batches',
+            'exam' => 'exams',
+            'cms_post' => 'cms_posts',
+            'cms_testimonial' => 'cms_testimonials',
+        ];
+
+        foreach ($entities as $entityType => $tableName) {
+            $entityId = (int) DB::table($tableName)->insertGetId([
+                'status' => 'draft',
+                'deleted_at' => now()->subDays(2),
+                'updated_at' => now()->subDays(2),
+            ]);
+            $itemId = $this->createRecycleItem($entityType, $entityId, 10, 2);
+
+            $this->postJson('/api/v1/recycle-bin/' . $itemId . '/restore')->assertOk();
+            $this->assertDatabaseHas($tableName, [
+                'id' => $entityId,
+                'deleted_at' => null,
+                'status' => 'published',
+            ]);
+            $this->assertDatabaseHas('recycle_bin_items', [
+                'id' => $itemId,
+                'status' => 'restored',
+            ]);
+        }
     }
 
     public function test_permanent_delete_retains_course_when_foreign_key_references_exist(): void

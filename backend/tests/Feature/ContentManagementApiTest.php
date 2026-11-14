@@ -47,13 +47,30 @@ class ContentManagementApiTest extends TestCase
             ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
         ]);
 
+        Schema::create('course_categories', function (Blueprint $table): void {
+            $table->id();
+            $table->string('name', 120);
+            $table->unsignedBigInteger('branch_id')->nullable();
+        });
+
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('category_id')->nullable();
             $table->unsignedBigInteger('branch_id')->nullable();
             $table->string('title', 180);
             $table->string('slug', 200)->unique();
+            $table->string('subtitle', 255)->nullable();
+            $table->text('description')->nullable();
+            $table->decimal('price', 12, 2)->default(0);
+            $table->decimal('original_price', 12, 2)->default(0);
+            $table->string('level', 80)->default('All Levels');
+            $table->unsignedSmallInteger('duration_weeks')->default(0);
+            $table->string('thumbnail', 2048)->nullable();
+            $table->string('status', 20)->default('draft');
             $table->unsignedBigInteger('created_by');
             $table->dateTime('deleted_at')->nullable();
+            $table->dateTime('created_at')->nullable();
+            $table->dateTime('updated_at')->nullable();
         });
 
         Schema::create('teacher_course_assignments', function (Blueprint $table): void {

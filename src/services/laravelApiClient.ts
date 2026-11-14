@@ -136,6 +136,7 @@ class LaravelApiService {
     list: () => this.request<{ items: unknown[] }>('/api/v1/recycle-bin'),
     restore: (id: number) => this.request<{ id: number; entity_type: string; entity_id: number }>('/api/v1/recycle-bin/' + id + '/restore', { method: 'POST' }),
     permanentlyDelete: (id: number) => this.request<{ id: number; already_absent?: boolean }>('/api/v1/recycle-bin/' + id + '/permanent-delete', { method: 'POST' }),
+    purgeExpired: () => this.request<{ purged: number; blocked: Array<{ id: number; reason: string }>; checked: number }>('/api/v1/recycle-bin/purge-expired', { method: 'POST' }),
   };
 
   public courses = {

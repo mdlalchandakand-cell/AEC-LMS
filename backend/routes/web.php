@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\TeacherCommissionController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\RecycleBinController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -116,6 +117,15 @@ Route::prefix('api/v1/live-classes')
         Route::post('/', [LiveClassController::class, 'store'])->name('store');
         Route::patch('/{liveClass}', [LiveClassController::class, 'update'])->whereNumber('liveClass')->name('update');
         Route::post('/{liveClass}/cancel', [LiveClassController::class, 'cancel'])->whereNumber('liveClass')->name('cancel');
+    });
+
+Route::prefix('api/v1/recycle-bin')
+    ->name('api.v1.recycle-bin.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [RecycleBinController::class, 'index'])->name('index');
+        Route::post('/{item}/restore', [RecycleBinController::class, 'restore'])->whereNumber('item')->name('restore');
+        Route::post('/{item}/permanent-delete', [RecycleBinController::class, 'permanentlyDelete'])->whereNumber('item')->name('permanent-delete');
     });
 
 Route::prefix('api/v1/payments')

@@ -145,6 +145,8 @@ class ExamController extends Controller
         }
 
         $row->questions = $items;
+        unset($row->course_status, $row->course_deleted_at, $row->course_branch_id);
+
         return response()->json(['success' => true, 'message' => 'Exam loaded.', 'data' => $row]);
     }
 

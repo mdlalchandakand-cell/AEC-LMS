@@ -158,6 +158,19 @@ class QuestionBankController extends Controller
             if (!$exam || !$this->canManageExam($actor, $exam)) {
                 return response()->json(['success' => false, 'message' => 'Exam not found or outside your permitted scope.', 'error' => 'Not found.'], 404);
             }
+            if ($actor->role === 'branch_manager') {
+                if (!$this->hasActiveBranch($actor->branch_id) || $exam->course_id === null) {
+                    return response()->json(['success' => false, 'message' => 'Exam not found in your permitted branch.', 'error' => 'Not found.'], 404);
+                }
+                $courseBranch = DB::table('courses')
+                    ->where('id', $exam->course_id)
+                    ->whereNull('deleted_at')
+                    ->value('branch_id');
+                if ($courseBranch === null || (int) $courseBranch !== (int) $actor->branch_id) {
+                    return response()->json(['success' => false, 'message' => 'Exam not found in your permitted branch.', 'error' => 'Not found.'], 404);
+                }
+            }
+
             if ($exam->status !== 'draft') {
                 return response()->json(['success' => false, 'message' => 'Question bank items can only be added to draft exams.', 'error' => 'Conflict.'], 409);
             }
@@ -353,6 +366,14 @@ class QuestionBankController extends Controller
             'metadata' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'created_at' => now(),
         ]);
+    }
+
+    private function hasActiveBranch(mixed $branchId): bool
+    {
+        return $branchId !== null && DB::table('branches')
+            ->where('id', $branchId)
+            ->where('is_active', 1)
+            ->exists();
     }
 
     private function forbidden(string $message): JsonResponse

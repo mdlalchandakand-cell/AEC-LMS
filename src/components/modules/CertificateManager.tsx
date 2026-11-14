@@ -93,7 +93,7 @@ export const CertificateManager: React.FC = () => {
     setGrade('Completed');
     const issuedNumber = isLaravelApiEnabled
       ? String((result.data as Record<string, unknown> | undefined)?.certificate_number || 'saved successfully')
-      : result.data?.certificate_number || 'saved successfully';
+      : String((result.data as { certificate_number?: string } | undefined)?.certificate_number || 'saved successfully');
     setSuccess(`Certificate issued: ${issuedNumber}`);
     await refresh();
   };

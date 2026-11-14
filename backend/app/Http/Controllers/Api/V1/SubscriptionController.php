@@ -135,7 +135,7 @@ class SubscriptionController extends Controller
             'proof_reference' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
         try {
-            $result = DB::transaction(function () use ($request, $student, $validated, $reference): array|JsonResponse {
+            $result = DB::transaction(function () use ($request, $student, $validated): array|JsonResponse {
                 $lockedUser = DB::table('users')
                     ->where('id', $student->id)
                     ->where('is_active', 1)

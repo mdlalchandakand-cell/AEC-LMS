@@ -232,6 +232,9 @@ class SubscriptionController extends Controller
             if (!$course) {
                 return response()->json(['success' => false, 'message' => 'Published course not found.', 'error' => 'Not found.'], 404);
             }
+            if ($student->branch_id !== null && !$this->hasActiveBranch($student->branch_id)) {
+                return response()->json(['success' => false, 'message' => 'Your assigned branch is inactive.', 'error' => 'Forbidden.'], 403);
+            }
             if ($course->branch_id !== null && !$this->hasActiveBranch($course->branch_id)) {
                 return response()->json(['success' => false, 'message' => 'Course branch is inactive.', 'error' => 'Conflict.'], 409);
             }

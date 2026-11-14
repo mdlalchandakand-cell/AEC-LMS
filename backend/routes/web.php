@@ -42,6 +42,7 @@ Route::prefix('api/v1/enrollments')
     ->middleware(['auth', 'lms.session'])
     ->group(function (): void {
         Route::get('/my', [EnrollmentController::class, 'my'])->name('my');
+        Route::get('/students', [EnrollmentController::class, 'students'])->name('students');
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');

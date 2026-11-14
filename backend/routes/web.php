@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
+use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,6 +35,16 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::prefix('api/v1/live-classes')
+    ->name('api.v1.live-classes.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [LiveClassController::class, 'index'])->name('index');
+        Route::post('/', [LiveClassController::class, 'store'])->name('store');
+        Route::patch('/{liveClass}', [LiveClassController::class, 'update'])->whereNumber('liveClass')->name('update');
+        Route::post('/{liveClass}/cancel', [LiveClassController::class, 'cancel'])->whereNumber('liveClass')->name('cancel');
     });
 
 Route::prefix('api/v1/payments')

@@ -370,6 +370,6 @@ class SubscriptionApiTest extends TestCase
         $this->deleteJson('/api/v1/subscriptions/plans/' . $planId)->assertOk();
         $this->assertSame(0, DB::table('subscription_plans')->where('id', $planId)->where('is_active', 1)->count());
         $this->getJson('/api/v1/subscriptions/plans')->assertOk()->assertJsonCount(0, 'data.items');
-        $this->assertDatabaseHas('subscription_plans', ['id' => $planId, 'deleted_at' => not null]);
+        $this->assertNotNull(DB::table('subscription_plans')->where('id', $planId)->value('deleted_at'));
     }
 }

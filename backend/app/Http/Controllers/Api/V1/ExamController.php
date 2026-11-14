@@ -82,6 +82,15 @@ class ExamController extends Controller
                                 ->where('selected.user_id', $actor->id)
                                 ->where('selected.status', 'active')
                                 ->where('user_subscriptions.status', 'active')
+                                ->where(function ($branch): void {
+                                    $branch->whereNull('selected.branch_id')
+                                        ->orWhereExists(function ($active): void {
+                                            $active->selectRaw('1')
+                                                ->from('branches')
+                                                ->whereColumn('branches.id', 'selected.branch_id')
+                                                ->where('branches.is_active', 1);
+                                        });
+                                })
                                 ->where(function ($starts) use ($now): void {
                                     $starts->whereNull('user_subscriptions.starts_at')
                                         ->orWhere('user_subscriptions.starts_at', '<=', $now);

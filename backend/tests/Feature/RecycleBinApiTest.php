@@ -426,4 +426,53 @@ class RecycleBinApiTest extends TestCase
         ]);
         $this->assertNotNull(DB::table('recycle_bin_items')->where('id', $itemId)->value('purge_error'));
     }
+
+
+    public function test_expired_recycle_bin_item_cannot_be_restored(): void
+    {
+        $this->createUser('admin@example.test', 'super_admin');
+        $courseId = $this->createCourse();
+        $itemId = $this->createRecycleItem('course', $courseId, 10, 31);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/recycle-bin/' . $itemId . '/restore')
+            ->assertStatus(409)
+            ->assertJsonPath('success', false);
+
+        $this->assertNotNull(DB::table('courses')->where('id', $courseId)->value('deleted_at'));
+        $this->assertDatabaseHas('recycle_bin_items', [
+            'id' => $itemId,
+            'status' => 'active',
+        ]);
+    }
+
+    public function test_branch_manager_cannot_permanently_delete_expired_items(): void
+    {
+        $this->createUser('manager@example.test', 'branch_manager', 10);
+        $courseId = $this->createCourse(10, 'manager-cannot-purge');
+        $itemId = $this->createRecycleItem('course', $courseId, 10, 31);
+        DB::table('role_permissions')->insert([
+            [
+                'role' => 'branch_manager',
+                'permission_key' => 'recycle_bin.manage',
+                'allowed' => 1,
+            ],
+            [
+                'role' => 'branch_manager',
+                'permission_key' => 'recycle_bin.purge',
+                'allowed' => 0,
+            ],
+        ]);
+        $this->login('manager@example.test');
+
+        $this->postJson('/api/v1/recycle-bin/' . $itemId . '/permanent-delete')
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('courses', ['id' => $courseId]);
+        $this->assertDatabaseHas('recycle_bin_items', [
+            'id' => $itemId,
+            'status' => 'active',
+        ]);
+    }
+
 }

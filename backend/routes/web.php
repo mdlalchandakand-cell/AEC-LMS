@@ -22,6 +22,7 @@ Route::prefix('api/v1/auth')->name('api.v1.auth.')->group(function (): void {
     Route::middleware(['auth', 'lms.session'])->group(function (): void {
         Route::get('/me', [AuthController::class, 'me'])->name('me');
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+        Route::post('/change-password', [AuthController::class, 'changePassword'])->name('change-password');
     });
 });
 

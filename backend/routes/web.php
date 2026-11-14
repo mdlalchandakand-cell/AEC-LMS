@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CourseProgressController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\PaymentController;
@@ -35,6 +36,20 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::prefix('api/v1/courses')
+    ->name('api.v1.courses.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/{course}/progress', [CourseProgressController::class, 'show'])->whereNumber('course')->name('progress');
+    });
+
+Route::prefix('api/v1/progress')
+    ->name('api.v1.progress.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::post('/lessons', [CourseProgressController::class, 'update'])->name('lessons.update');
     });
 
 Route::prefix('api/v1/live-classes')

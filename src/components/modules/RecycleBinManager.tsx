@@ -57,8 +57,9 @@ export const RecycleBinManager: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      const rows = await apiClient.recycleBin.getAll();
-      setItems(rows as RecycleItem[]);
+      const response = await apiClient.recycleBin.getAll();
+      if (!response.success) throw new Error(response.error || response.message || 'Could not load the recycle bin.');
+      setItems(Array.isArray(response.data) ? response.data as RecycleItem[] : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : (isBn ? 'রিসাইকেল বিন লোড করা যায়নি।' : 'Could not load the recycle bin.'));
     } finally {
@@ -113,11 +114,13 @@ export const RecycleBinManager: React.FC = () => {
     if (!window.confirm(isBn ? 'শুধু ৩০ দিনের মেয়াদ শেষ হওয়া আইটেমগুলো মুছবেন? লিঙ্কযুক্ত রেকর্ড রাখা হবে।' : 'Purge only items past the 30-day retention period? Items with linked history will be kept.')) return;
     setBusy(true); setError(''); setSuccess('');
     try {
-      const result = await apiClient.recycleBin.purgeExpired();
-      const blocked = Array.isArray(result.blocked) ? result.blocked.length : 0;
+      const response = await apiClient.recycleBin.purgeExpired();
+      if (!response.success || !response.data) throw new Error(response.error || response.message || 'Expired items could not be purged.');
+      const { purged, blocked: blockedItems } = response.data;
+      const blocked = Array.isArray(blockedItems) ? blockedItems.length : 0;
       setSuccess(isBn
-        ? `${result.purged}টি মুছে ফেলা হয়েছে; ${blocked}টি লিঙ্কযুক্ত রেকর্ডের কারণে রাখা হয়েছে।`
-        : `${result.purged} purged; ${blocked} retained because linked records remain.`);
+        ? `${purged}টি মুছে ফেলা হয়েছে; ${blocked}টি লিঙ্কযুক্ত রেকর্ডের কারণে রাখা হয়েছে।`
+        : `${purged} purged; ${blocked} retained because linked records remain.`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : (isBn ? 'মেয়াদোত্তীর্ণ আইটেম পরিষ্কার করা যায়নি।' : 'Expired items could not be purged.'));

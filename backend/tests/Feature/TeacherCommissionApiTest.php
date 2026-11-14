@@ -55,6 +55,14 @@ class TeacherCommissionApiTest extends TestCase
             $table->dateTime('deleted_at')->nullable();
         });
 
+        Schema::create('course_enrollments', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('status', 20)->default('pending');
+        });
+
         Schema::create('course_payments', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id');

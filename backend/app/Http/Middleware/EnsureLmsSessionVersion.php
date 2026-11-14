@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\\Models\\User;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,11 +12,16 @@ class EnsureLmsSessionVersion
 {
     public function handle(Request $request, Closure $next): Response
     {
-        // Force a fresh provider lookup so session_version changes made by an
-        // administrator or password-reset flow are noticed on this request.
-        $guard = Auth::guard('web');
-        $guard->forgetUser();
-        $user = $guard->user();
+        // Reload the record so account deactivation and session_version changes
+        // made by an administrator or password-reset flow take effect now.
+        $authenticatedUser = $request->user();
+        $user = $authenticatedUser
+            ? User::query()->find($authenticatedUser->getAuthIdentifier())
+            : null;
+
+        if ($user) {
+            Auth::guard('web')->setUser($user);
+        }
         $sessionVersion = $request->session()->get('aec_session_version');
 
         if (

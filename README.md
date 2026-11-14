@@ -13,11 +13,12 @@ A custom learning and administration platform for **Alom's English Center**.
 - Guardian consent portal with parent/guardian access to approved student summaries.
 - Teacher-course commission periods, refund-adjusted earnings and manual payout requests/review.
 - Academic batches, student placement, capacity management and weekly routine scheduling.
+- A 30-day recycle bin with scoped restore and dependency-safe administrator purge.
 - Target deployment: cPanel with PHP 8.3+, MySQL 8 or compatible MariaDB, and a built React/Vite frontend.
 
 ## Implemented backend slices
 
-The PHP API includes authentication/session handling, CSRF protection, role/permission checks, account lifecycle (registration, email verification and password recovery), branch-scoped administration, course/category/content management, enrolments and progress, manual payments/refunds and ledger records, exams, reusable question bank, attendance, live-class scheduling, notifications, CMS settings/posts/testimonials, student directory, public admission inquiries, certificates, guardian consent, teacher commissions/payouts, academic batches and weekly routines, storefront/e-book access and private course-media delivery.
+The PHP API includes authentication/session handling, CSRF protection, role/permission checks, account lifecycle (registration, email verification and password recovery), branch-scoped administration, course/category/content management, enrolments and progress, manual payments/refunds and ledger records, exams, reusable question bank, attendance, live-class scheduling, notifications, CMS settings/posts/testimonials, student directory, public admission inquiries, certificates, guardian consent, teacher commissions/payouts, academic batches and weekly routines, recycle-bin retention/restore, storefront/e-book access and private course-media delivery.
 
 The latest commission and batch modules are server-backed rather than local dashboard demo state. Teacher assignment changes create dated periods, so verified payments retain the rate active at review time; completed refunds reduce earnings, and accountant payout approval is separate from administrator-only assignment management. Payout transfers remain manual and require a confirmed external transaction reference. Batch enrollment requires an active/completed course enrollment, respects capacity and branch scope, and student batch/routine visibility is removed when course access is cancelled.
 

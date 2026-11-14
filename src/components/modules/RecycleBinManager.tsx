@@ -1,247 +1,245 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
-import { 
-  Trash2, RotateCcw, AlertTriangle, ShieldCheck, Clock, 
-  Search, CheckCircle2, XCircle, FileText, Layers, Users, BookOpen 
-} from 'lucide-react';
-import { RecycleBinItem } from '../../types/lms';
+import { apiClient } from '../../services/apiClient';
+import { AlertTriangle, CalendarClock, CheckCircle2, Clock, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from 'lucide-react';
+
+type RecycleItem = {
+  id: number;
+  entity_type: 'course' | 'content' | 'batch' | 'exam' | 'cms_post' | 'cms_testimonial' | string;
+  entity_id: number;
+  title: string;
+  branch_id: number | null;
+  status: 'active' | 'restored' | 'purged';
+  deleted_at: string;
+  expires_at: string;
+  purge_error: string | null;
+  deleted_by: string;
+  retention_days_left: number;
+  can_restore: boolean | number | string;
+  can_purge: boolean | number | string;
+};
+
+const canRestoreItem = (item: RecycleItem) => Number(item.can_restore) === 1;
+const canPurgeItem = (item: RecycleItem) => Number(item.can_purge) === 1;
+
+const typeLabel = (type: string, isBn: boolean) => {
+  const labels: Record<string, [string, string]> = {
+    course: ['Course', 'কোর্স'],
+    content: ['Content', 'কনটেন্ট'],
+    batch: ['Batch', 'ব্যাচ'],
+    exam: ['Exam', 'পরীক্ষা'],
+    cms_post: ['CMS post', 'ব্লগ পোস্ট'],
+    cms_testimonial: ['Testimonial', 'টেস্টিমোনিয়াল'],
+  };
+  return labels[type]?.[isBn ? 1 : 0] || type;
+};
+
+const dateText = (value: unknown) => {
+  if (!value) return '—';
+  const date = new Date(String(value).replace(' ', 'T'));
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+};
 
 export const RecycleBinManager: React.FC = () => {
-  const { 
-    recycleBin, restoreFromRecycleBin, permanentDeleteFromRecycleBin, 
-    emptyRecycleBin, language 
-  } = useLms();
+  const { currentUser, language } = useLms();
   const isBn = language === 'bn';
-
-  const [filterType, setFilterType] = useState<string>('all');
+  const canManage = ['admin', 'super_admin', 'branch_manager'].includes(currentUser.role);
+  const canPurge = ['admin', 'super_admin'].includes(currentUser.role);
+  const [items, setItems] = useState<RecycleItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [filterType, setFilterType] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedItemToDelete, setSelectedItemToDelete] = useState<RecycleBinItem | null>(null);
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const filteredItems = recycleBin.filter(item => {
-    const matchesSearch = item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.deletedBy.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = filterType === 'all' || item.itemType === filterType;
-    return matchesSearch && matchesType;
-  });
-
-  const handleRestore = (item: RecycleBinItem) => {
-    restoreFromRecycleBin(item.id);
-    setSuccessBanner(isBn ? `"${item.title}" সফলভাবে রিস্টোর করা হয়েছে!` : `"${item.title}" successfully restored!`);
-    setTimeout(() => setSuccessBanner(null), 3000);
-  };
-
-  const handleConfirmPermanentDelete = () => {
-    if (selectedItemToDelete) {
-      permanentDeleteFromRecycleBin(selectedItemToDelete.id);
-      setSuccessBanner(isBn ? 'রেকর্ডটি স্থায়ীভাবে মুছে ফেলা হয়েছে।' : 'Item permanently erased.');
-      setSelectedItemToDelete(null);
-      setTimeout(() => setSuccessBanner(null), 3000);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await apiClient.recycleBin.getAll();
+      if (!response.success) throw new Error(response.error || response.message || 'Could not load the recycle bin.');
+      setItems(Array.isArray(response.data) ? response.data as RecycleItem[] : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (isBn ? 'রিসাইকেল বিন লোড করা যায়নি।' : 'Could not load the recycle bin.'));
+    } finally {
+      setLoading(false);
     }
+  }, [isBn]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const filteredItems = useMemo(() => items.filter(item => {
+    const matchesType = filterType === 'all' || item.entity_type === filterType;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || item.title.toLowerCase().includes(query) || String(item.deleted_by || '').toLowerCase().includes(query);
+    return matchesType && matchesSearch;
+  }), [items, filterType, searchQuery]);
+
+  const expiredCount = items.filter(item => canPurgeItem(item)).length;
+
+  const restoreItem = async (item: RecycleItem) => {
+    if (!canRestoreItem(item)) {
+      setError(isBn ? '৩০ দিনের মেয়াদ শেষ; আইটেমটি আর রিস্টোর করা যাবে না।' : 'The 30-day retention period has expired; this item cannot be restored.');
+      return;
+    }
+    if (!window.confirm(isBn ? 'এই আইটেমটি রিস্টোর করবেন?' : 'Restore this item?')) return;
+    setBusy(true); setError(''); setSuccess('');
+    try {
+      await apiClient.recycleBin.restore(item.id);
+      setSuccess(isBn ? 'আইটেমটি রিস্টোর হয়েছে।' : 'Item restored.');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (isBn ? 'রিস্টোর করা যায়নি।' : 'Restore failed.'));
+    } finally { setBusy(false); }
   };
 
-  const handleEmptyAll = () => {
-    if (window.confirm(isBn ? 'আপনি কি সম্পূর্ণ রিসাইকেল বিন খালি করতে নিশ্চিত?' : 'Are you sure you want to permanently empty the entire Recycle Bin?')) {
-      emptyRecycleBin();
-      setSuccessBanner(isBn ? 'রিসাইকেল বিন সম্পূর্ণ খালি করা হয়েছে।' : 'Recycle Bin emptied.');
-      setTimeout(() => setSuccessBanner(null), 3000);
-    }
+  const purgeItem = async (item: RecycleItem) => {
+    if (!canPurge || !canPurgeItem(item)) return;
+    if (!window.confirm(isBn ? '৩০ দিনের মেয়াদ শেষ। স্থায়ীভাবে মুছে ফেলবেন?' : 'The retention period has expired. Permanently delete this item?')) return;
+    setBusy(true); setError(''); setSuccess('');
+    try {
+      await apiClient.recycleBin.permanentDelete(item.id);
+      setSuccess(isBn ? 'আইটেমটি স্থায়ীভাবে মুছে ফেলা হয়েছে।' : 'Item permanently deleted.');
+      await load();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : (isBn ? 'স্থায়ীভাবে মুছতে ব্যর্থ।' : 'Permanent deletion failed.');
+      await load();
+      setError(message);
+    } finally { setBusy(false); }
   };
+
+  const purgeExpired = async () => {
+    if (!canPurge || expiredCount === 0) return;
+    if (!window.confirm(isBn ? 'শুধু ৩০ দিনের মেয়াদ শেষ হওয়া আইটেমগুলো মুছবেন? লিঙ্কযুক্ত রেকর্ড রাখা হবে।' : 'Purge only items past the 30-day retention period? Items with linked history will be kept.')) return;
+    setBusy(true); setError(''); setSuccess('');
+    try {
+      const response = await apiClient.recycleBin.purgeExpired();
+      if (!response.success || !response.data) throw new Error(response.error || response.message || 'Expired items could not be purged.');
+      const { purged, blocked: blockedItems } = response.data;
+      const blocked = Array.isArray(blockedItems) ? blockedItems.length : 0;
+      setSuccess(isBn
+        ? `${purged}টি মুছে ফেলা হয়েছে; ${blocked}টি লিঙ্কযুক্ত রেকর্ডের কারণে রাখা হয়েছে।`
+        : `${purged} purged; ${blocked} retained because linked records remain.`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : (isBn ? 'মেয়াদোত্তীর্ণ আইটেম পরিষ্কার করা যায়নি।' : 'Expired items could not be purged.'));
+    } finally { setBusy(false); }
+  };
+
+  if (!canManage) {
+    return <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800">{isBn ? 'এই মডিউল ব্যবহারের অনুমতি নেই।' : 'You do not have permission to use the recycle bin.'}</div>;
+  }
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/90 shadow-2xs">
+      <section className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-bold uppercase tracking-wider">
-              {isBn ? 'সফ্ট ডিলিট ও রিস্টোরেশন' : 'Soft Delete & Safe Recovery'}
-            </span>
-            <span className="text-xs text-slate-400">30-Day Auto Retention</span>
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-rose-700">
+            <ShieldCheck className="h-4 w-4" />
+            {isBn ? 'নিরাপদ রিস্টোর ও ৩০ দিনের সংরক্ষণ' : 'Safe restore and 30-day retention'}
           </div>
-          <h2 className="text-lg font-bold text-slate-900 leading-tight mt-1">
-            {isBn ? 'রিসাইকেল বিন ও ট্র্যাশ ম্যানেজমেন্ট' : 'Recycle Bin & Safe Trash Center'}
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isBn 
-              ? 'ভুলবশত মুছে ফেলা কোর্স, ব্যাচ ও সার্কুলার ৩০ দিনের মধ্যে যেকোনো সময় আগের অবস্থায় রিস্টোর করুন।'
-              : 'Safeguard against accidental deletions. Restore removed courses, cohorts, and exams with 1-click.'}
+          <h2 className="mt-1 text-lg font-bold text-slate-900">{isBn ? 'রিসাইকেল বিন' : 'Recycle Bin'}</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            {isBn ? 'মেয়াদ শেষ হওয়ার আগে রিস্টোর করুন। মেয়াদোত্তীর্ণ আইটেমও লিঙ্কযুক্ত ইতিহাস থাকলে স্থায়ীভাবে মোছা হবে না।' : 'Restore before expiry. Expired items with linked history are retained rather than force-deleted.'}
           </p>
         </div>
-
-        {recycleBin.length > 0 && (
-          <button
-            onClick={handleEmptyAll}
-            className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors cursor-pointer self-start sm:self-auto"
-          >
-            <Trash2 className="w-4 h-4 text-rose-600" />
-            <span>{isBn ? 'সম্পূর্ণ ট্র্যাশ খালি করুন' : 'Empty Trash'}</span>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => void load()} disabled={busy || loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> {isBn ? 'রিফ্রেশ' : 'Refresh'}
           </button>
-        )}
-      </div>
-
-      {/* Success Banner */}
-      {successBanner && (
-        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{successBanner}</span>
-        </div>
-      )}
-
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-        <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder={isBn ? 'ডিলিট করা আইটেম খুঁজুন...' : 'Search deleted records...'}
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-hidden focus:border-rose-400"
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          {[
-            { id: 'all', label: isBn ? 'সকল আইটেম' : 'All Items' },
-            { id: 'course', label: isBn ? 'কোর্স' : 'Courses' },
-            { id: 'batch', label: isBn ? 'ব্যাচ' : 'Batches' },
-            { id: 'notice', label: isBn ? 'নোটিশ' : 'Notices' },
-            { id: 'exam', label: isBn ? 'পরীক্ষা' : 'Exams' }
-          ].map(type => (
-            <button
-              key={type.id}
-              onClick={() => setFilterType(type.id)}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
-                filterType === type.id
-                  ? 'bg-rose-600 text-white shadow-2xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-              }`}
-            >
-              {type.label}
+          {canPurge && (
+            <button onClick={() => void purgeExpired()} disabled={busy || expiredCount === 0} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
+              <Trash2 className="h-4 w-4" /> {isBn ? 'মেয়াদোত্তীর্ণ আইটেম পরিষ্কার' : 'Purge expired items'} ({expiredCount})
             </button>
-          ))}
+          )}
         </div>
-      </div>
+      </section>
 
-      {/* Recycle Bin Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
-        {filteredItems.length === 0 ? (
-          <div className="p-12 text-center space-y-3">
-            <div className="w-16 h-16 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <Trash2 className="w-8 h-8" />
-            </div>
-            <h3 className="font-bold text-base text-slate-700">
-              {isBn ? 'রিসাইকেল বিন বর্তমানে খালি' : 'Recycle Bin is Empty'}
-            </h3>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              {isBn 
-                ? 'কোনো মুছে ফেলা আইটেম নেই। আপনার ডাটাবেজের সকল তথ্য সক্রিয় ও সুরক্ষিত রয়েছে।'
-                : 'No soft-deleted records found. System data is healthy and secure.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="py-3 px-4">Item Details</th>
-                  <th className="py-3 px-4">Type</th>
-                  <th className="py-3 px-4">Deleted By</th>
-                  <th className="py-3 px-4">Deleted Date</th>
-                  <th className="py-3 px-4">Retention</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredItems.map(item => (
-                  <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900">{item.title}</div>
-                      <div className="text-[10px] font-mono text-slate-400 mt-0.5">ID: {item.originalId}</div>
+      {success && <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"><CheckCircle2 className="h-4 w-4" />{success}</div>}
+      {error && <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+
+      <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={isBn ? 'নাম বা মুছে ফেলা ব্যক্তির নাম খুঁজুন...' : 'Search by title or deleted by...'} className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm" />
+        </div>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+          <option value="all">{isBn ? 'সব ধরনের' : 'All types'}</option>
+          <option value="course">{isBn ? 'কোর্স' : 'Courses'}</option>
+          <option value="content">{isBn ? 'কনটেন্ট' : 'Content'}</option>
+          <option value="batch">{isBn ? 'ব্যাচ' : 'Batches'}</option>
+          <option value="exam">{isBn ? 'পরীক্ষা' : 'Exams'}</option>
+          <option value="cms_post">{isBn ? 'ব্লগ পোস্ট' : 'CMS posts'}</option>
+          <option value="cms_testimonial">{isBn ? 'টেস্টিমোনিয়াল' : 'Testimonials'}</option>
+        </select>
+      </section>
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="p-3">{isBn ? 'আইটেম' : 'Item'}</th>
+                <th className="p-3">{isBn ? 'মুছে ফেলা হয়েছে' : 'Deleted'}</th>
+                <th className="p-3">{isBn ? 'মুছে ফেলেছেন' : 'Deleted by'}</th>
+                <th className="p-3">{isBn ? 'মেয়াদ' : 'Retention'}</th>
+                <th className="p-3">{isBn ? 'অবস্থা' : 'Status'}</th>
+                <th className="p-3 text-right">{isBn ? 'কাজ' : 'Actions'}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr><td colSpan={6} className="p-8 text-center text-slate-500">{isBn ? 'লোড হচ্ছে...' : 'Loading recycle-bin items...'}</td></tr>
+              ) : filteredItems.length === 0 ? (
+                <tr><td colSpan={6} className="p-8 text-center text-slate-500">{isBn ? 'কোনো আইটেম পাওয়া যায়নি।' : 'No recycle-bin items found.'}</td></tr>
+              ) : filteredItems.map(item => {
+                const expired = canPurgeItem(item);
+                return (
+                  <tr key={item.id} className="align-top">
+                    <td className="p-3">
+                      <div className="font-semibold text-slate-900">{item.title}</div>
+                      <div className="mt-0.5 text-xs text-slate-500">{typeLabel(item.entity_type, isBn)} · #{item.entity_id}</div>
                     </td>
-                    <td className="py-3.5 px-4">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-slate-100 text-slate-700">
-                        {item.itemType}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600 font-medium">
-                      {item.deletedBy}
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
-                      {item.deletedAt}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1.5 text-amber-600 font-semibold text-[11px]">
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>{item.retentionDaysLeft} days left</span>
+                    <td className="p-3 text-xs text-slate-600">{dateText(item.deleted_at)}</td>
+                    <td className="p-3 text-xs text-slate-600">{item.deleted_by || '—'}</td>
+                    <td className="p-3">
+                      <div className={`inline-flex items-center gap-1 text-xs font-semibold ${expired ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        <CalendarClock className="h-3.5 w-3.5" />
+                        {expired ? (isBn ? 'মেয়াদ শেষ' : 'Expired') : `${item.retention_days_left} ${isBn ? 'দিন বাকি' : 'days left'}`}
                       </div>
+                      <div className="mt-1 text-[11px] text-slate-400">{dateText(item.expires_at)}</div>
                     </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleRestore(item)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg transition-colors cursor-pointer"
-                          title="Restore to active system"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          <span>Restore</span>
+                    <td className="p-3">
+                      {item.purge_error ? (
+                        <div className="max-w-[220px] text-xs text-amber-700" title={item.purge_error}>{isBn ? 'লিঙ্কযুক্ত রেকর্ড রাখা হয়েছে' : 'Retained: linked records'}</div>
+                      ) : (
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{isBn ? 'সংরক্ষিত' : 'Retained'}</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => void restoreItem(item)} disabled={busy || expired} title={expired ? 'Retention expired' : 'Restore'} className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-semibold text-blue-700 disabled:opacity-40">
+                          <RotateCcw className="h-3.5 w-3.5" /> {isBn ? 'রিস্টোর' : 'Restore'}
                         </button>
-
-                        <button
-                          onClick={() => setSelectedItemToDelete(item)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg transition-colors cursor-pointer"
-                          title="Permanently remove"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>Purge</span>
-                        </button>
+                        {canPurge && expired && (
+                          <button onClick={() => void purgeItem(item)} disabled={busy} title="Permanently delete" className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-40">
+                            <Trash2 className="h-3.5 w-3.5" /> {isBn ? 'মুছুন' : 'Delete'}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Permanent Delete Confirmation Modal */}
-      {selectedItemToDelete && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-
-            <div className="text-center space-y-1">
-              <h3 className="font-bold text-base text-slate-900">
-                {isBn ? 'স্থায়ীভাবে মুছে ফেলার নিশ্চিতকরণ' : 'Permanent Purge Confirmation'}
-              </h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                {isBn 
-                  ? `আপনি কি নিশ্চিতভাবে "${selectedItemToDelete.title}" স্থায়ীভাবে মুছে ফেলতে চান? এটি ডাটাবেজ থেকে সম্পূর্ণ মুছে যাবে এবং পুনরায় রিস্টোর করা সম্ভব হবে না।`
-                  : `Are you sure you want to permanently erase "${selectedItemToDelete.title}"? This cannot be restored.`}
-              </p>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setSelectedItemToDelete(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmPermanentDelete}
-                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs shadow-xs"
-              >
-                Yes, Purge Permanently
-              </button>
-            </div>
-          </div>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      )}
+      </section>
+      <p className="text-xs text-slate-500">
+        <Clock className="mr-1 inline h-3.5 w-3.5" />
+        {isBn ? 'স্থায়ীভাবে মুছে ফেলার আগে ৩০ দিন অপেক্ষা করা হয়। অন্য রেকর্ডের সঙ্গে সম্পর্ক থাকলে সেগুলো মুছে ফেলা হবে না।' : 'Permanent deletion is available only after 30 days. Records with linked history are retained.'}
+      </p>
     </div>
   );
 };

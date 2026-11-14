@@ -25,6 +25,7 @@ The current `api/` directory contains persistent endpoints for:
 - Storefront orders, private e-book PDFs and private course-media upload/delivery.
 - Teacher-course commission periods, refund-adjusted commission balances and payout requests/review.
 - Academic batches, eligible-student placement, rosters, capacity checks and weekly routine slots.
+- A 30-day recycle bin with scoped restore and administrator-only dependency-safe permanent purge.
 
 Important module behavior now covered by integration tests:
 
@@ -32,6 +33,7 @@ Important module behavior now covered by integration tests:
 - Completed refunds reduce commission. Payout requests reserve balances, and approval/settlement re-checks the available amount. Accountants can manage payout decisions but cannot change teacher assignments or rates.
 - Batch placement requires an active/completed course enrolment, respects capacity and branch scope, and hides student batch/routine access when course access is cancelled.
 - Routine creation checks instructor/room overlaps and serializes schedule writes to reduce concurrent booking races.
+- Recycle-bin entries are recorded atomically with soft deletes; expired records with linked foreign-key history are retained, and branch managers cannot purge.
 - Private e-book and course-media files use protected storage and authorization-aware download endpoints; the target host still needs direct-URL denial tests.
 
 An API file or a green integration test does not mean the corresponding workflow has passed full browser E2E or production-host verification.
@@ -60,6 +62,7 @@ The cPanel workflow assembles the built `dist/` frontend with the real `api/`, `
 | Email | Verify sender domain/mailbox and complete registration, verification, resend and password-recovery smoke tests on the real host. Current transport uses PHP `mail()`, not a configured SMTP provider. |
 | Payments | Current bKash/Nagad/bank flow is staff-reviewed. Implement and verify provider callbacks/signatures, idempotency, automated settlement/refund handling, receipts and reconciliation before claiming gateway automation. |
 | Teacher payouts | Transfers are manual. Verify the actual bank/mobile-wallet process and reconcile external references; no automatic payout provider is connected. |
+| Recycle bin | 30-day retention, scoped restore and dependency-aware purge are implemented; scheduled retention cadence and browser E2E remain to be verified on the target host. |
 | Backup and upgrades | Add and rehearse backup/restore, installation lock, upgrade/rollback and recovery procedures. The current first-admin and migration setup is CLI-based. |
 | Browser QA | Run browser E2E for student, guardian, teacher, accountant, branch-manager and administrator journeys; include accessibility, responsive layout and security checks. |
 | Branch isolation | Complete a module-by-module authorization audit, especially cross-branch reads/writes and staff/student data visibility. Existing scoped checks are not a blanket isolation certification. |

@@ -506,22 +506,26 @@ if ($action === 'submit') {
 
 if ($action === 'delete') {
     aec_method(['POST']);
-    aec_require_permission('exams.manage');
+    $actor = aec_require_permission('exams.manage');
     aec_csrf_check();
     $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$id || $id < 1) aec_fail('A valid exam identifier is required.', 422);
     $db->beginTransaction();
     try {
-        $exists = $db->prepare('SELECT id FROM exams WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE');
-        $exists->execute([$id]);
-        if (!$exists->fetch()) aec_fail('Exam not found.', 404);
+        $exists = $db->prepare('SELECT e.id, e.title, e.status, e.course_id, c.branch_id AS course_branch_id FROM exams e LEFT JOIN courses c ON c.id = e.course_id WHERE e.id = ? AND e.deleted_at IS NULL LIMIT 1 FOR UPDATE');
+        $exists->execute([$id]); $exam = $exists->fetch();
+        if (!$exam) aec_fail('Exam not found.', 404);
+        if ($actor['role'] === 'branch_manager' && ($exam['course_branch_id'] === null || (int)$exam['course_branch_id'] !== (int)$actor['branch_id'])) aec_fail('Exam is outside your assigned branch.', 403);
         $attemptCheck = $db->prepare('SELECT COUNT(*) FROM exam_attempts WHERE exam_id = ?');
         $attemptCheck->execute([$id]);
         if ((int)$attemptCheck->fetchColumn() > 0) aec_fail('An exam with attempts cannot be archived.', 409);
         $stmt = $db->prepare('UPDATE exams SET deleted_at = NOW(), status = \'archived\', updated_at = NOW() WHERE id = ? AND deleted_at IS NULL');
         $stmt->execute([$id]);
+        aec_recycle_bin_record($db, $actor, 'exam', (int)$id, (string)$exam['title'], $exam['course_branch_id'] === null ? null : (int)$exam['course_branch_id'], [
+            'status' => $exam['status'], 'course_id' => $exam['course_id'] === null ? null : (int)$exam['course_id'],
+        ]);
         $db->commit();
-        aec_ok(['id' => (int)$id], 'Exam archived.');
+        aec_ok(['id' => (int)$id], 'Exam archived and moved to recycle bin.');
     } catch (Throwable $error) {
         if ($db->inTransaction()) $db->rollBack();
         throw $error;

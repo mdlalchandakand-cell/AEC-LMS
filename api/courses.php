@@ -114,6 +114,7 @@ if ($action === 'restore') {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     if (!$stmt->rowCount()) aec_fail('Deleted course not found.', 404);
+    $db->prepare("UPDATE recycle_bin_items SET status = 'restored', restored_by = ?, restored_at = NOW() WHERE entity_type = 'course' AND entity_id = ? AND status = 'active'")->execute([(int)$actor['id'], (int)$id]);
     aec_ok(['id' => $id], 'Course restored.');
 }
 
@@ -128,13 +129,24 @@ if ($action === 'create' || $action === 'update' || $action === 'delete') {
     if ($action === 'delete') {
         $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
         if (!$id) aec_fail('A valid course id is required.', 422);
-        $sql = 'UPDATE courses SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL';
-        $params = [$id];
-        if ($actor['role'] === 'branch_manager') { $sql .= ' AND branch_id = ?'; $params[] = (int)$actor['branch_id']; }
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-        if (!$stmt->rowCount()) aec_fail('Course not found.', 404);
-        aec_ok(null, 'Course moved to recycle bin.');
+        $db->beginTransaction();
+        try {
+            $select = $db->prepare('SELECT id, title, slug, status, branch_id FROM courses WHERE id = ? AND deleted_at IS NULL' . ($actor['role'] === 'branch_manager' ? ' AND branch_id = ?' : '') . ' LIMIT 1 FOR UPDATE');
+            $select->execute($actor['role'] === 'branch_manager' ? [$id, (int)$actor['branch_id']] : [$id]);
+            $course = $select->fetch();
+            if (!$course) aec_fail('Course not found.', 404);
+            $update = $db->prepare('UPDATE courses SET deleted_at = NOW(), updated_at = NOW() WHERE id = ? AND deleted_at IS NULL');
+            $update->execute([$id]);
+            if ($update->rowCount() !== 1) aec_fail('Course is already deleted.', 409);
+            aec_recycle_bin_record($db, $actor, 'course', (int)$id, (string)$course['title'], $course['branch_id'] === null ? null : (int)$course['branch_id'], [
+                'status' => $course['status'], 'slug' => $course['slug'],
+            ]);
+            $db->commit();
+            aec_ok(['id' => (int)$id], 'Course moved to recycle bin.');
+        } catch (Throwable $error) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $error;
+        }
     }
 
     $title = trim((string)($input['title'] ?? ''));

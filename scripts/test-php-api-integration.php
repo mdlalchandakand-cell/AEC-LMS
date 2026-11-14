@@ -199,6 +199,7 @@ $cmsPostId = null;
 $cmsTestimonialId = null;
 $paymentId = null;
 $batchId = null;
+$purgeBatchId = null;
 $routineId = null;
 $certificateId = null;
 $admissionApplicationId = null;
@@ -518,6 +519,31 @@ try {
     ], $cookie, $csrf), 200, 'Admin publishes testimonial');
     $publicTestimonials = expect_status(api_request($base, '/api/cms.php?action=public_testimonials'), 200, 'Public testimonial list after publishing');
     check(in_array($cmsTestimonialId, array_map(static fn(array $item): int => (int)$item['id'], $publicTestimonials['data'] ?? []), true), 'Published testimonial was not visible publicly.');
+    expect_status(api_request($base, '/api/cms.php?action=delete_post&id=' . $cmsPostId, 'POST', [], $cookie, $csrf), 200, 'Admin archives a CMS post into recycle bin');
+    $cmsRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists CMS content');
+    $cmsPostRecycleItem = array_values(array_filter($cmsRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'cms_post' && (int)$row['entity_id'] === $cmsPostId))[0] ?? null;
+    check(is_array($cmsPostRecycleItem), 'CMS post was not registered in recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$cmsPostRecycleItem['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores CMS post');
+    expect_status(api_request($base, '/api/cms.php?action=post&slug=api-cms-article-' . $suffix), 200, 'Restored CMS post is publicly readable again');
+
+    expect_status(api_request($base, '/api/cms.php?action=delete_testimonial&id=' . $cmsTestimonialId, 'POST', [], $cookie, $csrf), 200, 'Admin archives testimonial into recycle bin');
+    $testimonialRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists archived testimonials');
+    $testimonialRecycleItem = array_values(array_filter($testimonialRecycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'cms_testimonial' && (int)$row['entity_id'] === $cmsTestimonialId))[0] ?? null;
+    check(is_array($testimonialRecycleItem), 'CMS testimonial was not registered in recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$testimonialRecycleItem['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores CMS testimonial');
+    expect_status(api_request($base, '/api/cms.php?action=public_testimonials'), 200, 'Restored testimonial is publicly available again');
+    expect_status(api_request($base, '/api/cms.php?action=delete_testimonial&id=' . $cmsTestimonialId, 'POST', [], $cookie, $csrf), 200, 'Admin archives testimonial again for retention purge test');
+    $expiredRecycleId = (int)$db->query("SELECT id FROM recycle_bin_items WHERE entity_type = 'cms_testimonial' AND entity_id = " . (int)$cmsTestimonialId . " AND status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+    check($expiredRecycleId > 0, 'Second testimonial deletion did not create a new recycle-bin record.');
+    $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?')->execute([$expiredRecycleId]);
+    $beforePurgeList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Expired recycle item remains visible until explicit purge');
+    check(in_array($expiredRecycleId, array_map(static fn(array $row): int => (int)$row['id'], $beforePurgeList['data'] ?? []), true), 'Recycle-bin list purged an item without an explicit purge request.');
+    $cmsPurge = expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $cookie, $csrf), 200, 'Admin explicitly purges expired testimonial');
+    check((int)($cmsPurge['data']['purged'] ?? 0) >= 1, 'Expired testimonial without dependent records was not purged.');
+    $expiredStatus = $db->prepare('SELECT status FROM recycle_bin_items WHERE id = ?');
+    $expiredStatus->execute([$expiredRecycleId]);
+    check($expiredStatus->fetchColumn() === 'purged', 'Expired testimonial was not marked purged.');
+
     expect_status(api_request($base, '/api/courses.php?action=create', 'POST', ['title' => 'No CSRF', 'slug' => 'no-csrf'], $cookie), 419, 'Missing CSRF token is rejected');
 
     $otherBranch = expect_status(api_request($base, '/api/branches.php?action=create', 'POST', [
@@ -924,9 +950,28 @@ try {
     expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch');
     $studentBatchesAfterDelete = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student batch list hides deleted batches');
     check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterDelete['data'] ?? []), true), 'Deleted batch remained visible to students.');
-    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin restores a batch');
+    $recycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Administrator lists recycle-bin records');
+    $batchRecycleRows = array_values(array_filter($recycleItems['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId));
+    check(count($batchRecycleRows) === 1, 'Soft-deleted batch was not recorded exactly once in the recycle bin.');
+    $batchRecycleItemId = (int)$batchRecycleRows[0]['id'];
+    $branchRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager lists only their recycle-bin items');
+    check(count(array_filter($branchRecycleItems['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $batchRecycleItemId)) === 1, 'Branch manager could not see the batch from their own branch.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Administrator cannot permanently delete before the retention period');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $branchManagerCookie, $branchManagerCsrf), 403, 'Branch manager cannot purge recycle-bin records');
+    $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?')->execute([$batchRecycleItemId]);
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 409, 'Expired recycle-bin item cannot be restored');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Batch with enrollment/routine history is retained after expiry');
+    $blockedRecycleItem = $db->prepare('SELECT purge_error FROM recycle_bin_items WHERE id = ?');
+    $blockedRecycleItem->execute([$batchRecycleItemId]);
+    check((string)$blockedRecycleItem->fetchColumn() !== '', 'Blocked permanent deletion did not record the dependency reason.');
+    $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY), purge_error = NULL WHERE id = ?')->execute([$batchRecycleItemId]);
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 200, 'Branch manager restores an item from the assigned branch');
     $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
     check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch again for direct-restore reconciliation');
+    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Direct batch restore endpoint succeeds');
+    $activeBatchRecycle = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle-bin list refreshes after direct batch restore');
+    check(count(array_filter($activeBatchRecycle['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId)) === 0, 'Direct batch restore did not reconcile its recycle-bin record.');
     $batchUpdateBase = [
         'course_id' => $courseIds[0], 'name' => 'API Integration Batch ' . $suffix,
         'batch_code' => 'TST-' . strtoupper($suffix), 'schedule' => 'Sun 10:00-11:00',
@@ -1282,6 +1327,45 @@ try {
     check((float)($commissionAfterFullRefund['data']['totals']['gross_commission'] ?? 0) === 0.0
         && (float)($commissionAfterFullRefund['data']['totals']['overpaid_commission'] ?? 0) === 500.0,
         'Full refund did not remove the earned commission and report the already-paid recovery amount.');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes the historical batch for expiry purge test');
+    $purgeBatch = expect_status(api_request($base, '/api/batches.php?action=create', 'POST', [
+        'course_id' => $courseIds[0], 'name' => 'Expired Purge Batch ' . $suffix,
+        'batch_code' => 'PUR-' . strtoupper($suffix), 'schedule' => 'Mon 12:00-13:00',
+        'room_number' => 'Purge Room', 'instructor_user_id' => $teacherId, 'max_capacity' => 5,
+        'start_date' => '2026-11-15', 'end_date' => '2027-03-01', 'status' => 'upcoming',
+    ], $commissionAdminCookie, $commissionAdminCsrf), 201, 'Admin creates an empty batch for retention purge test');
+    $purgeBatchId = (int)$purgeBatch['data']['id'];
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $purgeBatchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes the empty batch');
+    $db->prepare("UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE entity_type = 'batch' AND entity_id IN (?, ?) AND status = 'active'")->execute([$batchId, $purgeBatchId]);
+    $purgeResult = expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Administrator purges only expired recycle-bin records');
+    check((int)($purgeResult['data']['purged'] ?? 0) >= 1, 'Expired batch without dependencies was not permanently purged.');
+    check(count($purgeResult['data']['blocked'] ?? []) >= 1, 'Batch with enrolment/routine history was not reported as retained.');
+    $purgedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ?');
+    $purgedBatchCheck->execute([$purgeBatchId]);
+    check((int)$purgedBatchCheck->fetchColumn() === 0, 'Expired batch without dependencies still exists after purge.');
+    $retainedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ? AND deleted_at IS NOT NULL');
+    $retainedBatchCheck->execute([$batchId]);
+    check((int)$retainedBatchCheck->fetchColumn() === 1, 'Batch with historical enrollments/routines was permanently deleted.');
+    expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $courseIds[0], 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin moves a course to the recycle bin');
+    $courseRecycleList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $commissionAdminCookie), 200, 'Recycle bin lists soft-deleted courses');
+    $courseRecycleRows = array_values(array_filter($courseRecycleList['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === (int)$courseIds[0]));
+    check(count($courseRecycleRows) === 1, 'Soft-deleted course was not recorded in the recycle bin.');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$courseRecycleRows[0]['id'], 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin restores a course from the recycle bin');
+    $courseRestoreCheck = $db->prepare('SELECT deleted_at FROM courses WHERE id = ?');
+    $courseRestoreCheck->execute([$courseIds[0]]);
+    check($courseRestoreCheck->fetchColumn() === null, 'Recycle-bin course restore did not clear deleted_at.');
+    if ($contentId !== null) {
+        expect_status(api_request($base, '/api/content.php?action=delete&id=' . $contentId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin moves content to the recycle bin');
+        $contentRecycleList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $commissionAdminCookie), 200, 'Recycle bin lists soft-deleted content');
+        $contentRecycleRows = array_values(array_filter($contentRecycleList['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'content' && (int)$row['entity_id'] === (int)$contentId));
+        check(count($contentRecycleRows) === 1, 'Soft-deleted content was not recorded in the recycle bin.');
+        expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$contentRecycleRows[0]['id'], 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin restores content from the recycle bin');
+        $contentRestoreCheck = $db->prepare('SELECT deleted_at FROM content_items WHERE id = ?');
+        $contentRestoreCheck->execute([$contentId]);
+        check($contentRestoreCheck->fetchColumn() === null, 'Recycle-bin content restore did not clear deleted_at.');
+    }
+
+
     $enrollmentAfterRefund = $db->prepare('SELECT status FROM course_enrollments WHERE user_id = ? AND course_id = ?');
     $enrollmentAfterRefund->execute([$studentId, $courseIds[0]]);
     check($enrollmentAfterRefund->fetchColumn() === 'cancelled', 'Course enrollment was not cancelled after full refund.');
@@ -1445,10 +1529,23 @@ try {
         $db->prepare('DELETE FROM course_content WHERE content_item_id = ?')->execute([$cleanupContentId]);
         $db->prepare('DELETE FROM content_items WHERE id = ?')->execute([$cleanupContentId]);
     }
+    if ($courseIds !== []) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'course' AND entity_id = ?")->execute([$courseIds[0]]);
+    }
+    if ($contentId !== null) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'content' AND entity_id = ?")->execute([$contentId]);
+    }
+    if ($cmsPostId !== null) $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'cms_post' AND entity_id = ?")->execute([$cmsPostId]);
+    if ($cmsTestimonialId !== null) $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'cms_testimonial' AND entity_id = ?")->execute([$cmsTestimonialId]);
     if ($batchId !== null) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'batch' AND entity_id = ?")->execute([$batchId]);
         $db->prepare('DELETE FROM batch_routine_slots WHERE batch_id = ?')->execute([$batchId]);
         $db->prepare('DELETE FROM batch_enrollments WHERE batch_id = ?')->execute([$batchId]);
         $db->prepare('DELETE FROM batches WHERE id = ?')->execute([$batchId]);
+    }
+    if ($purgeBatchId !== null) {
+        $db->prepare("DELETE FROM recycle_bin_items WHERE entity_type = 'batch' AND entity_id = ?")->execute([$purgeBatchId]);
+        $db->prepare('DELETE FROM batches WHERE id = ?')->execute([$purgeBatchId]);
     }
     if ($teacherId !== null) $db->prepare('DELETE FROM teacher_course_assignments WHERE teacher_user_id = ?')->execute([$teacherId]);
     $cleanupCourseIds = array_values(array_filter([...$courseIds, $draftCourseId, $branchManagedCourseId]));

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Plus, BookOpen, Users } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 
 type Enrollment = {
   id: number;
@@ -39,11 +40,16 @@ export const EnrollmentManagement: React.FC = () => {
     setLoading(true);
     setError('');
     const [enrollments, userResult, courseResult] = await Promise.all([
-      apiClient.enrollments.getAll(filter, 200),
+      isLaravelApiEnabled
+        ? laravelApiClient.enrollments.list(filter, 100)
+        : apiClient.enrollments.getAll(filter, 200),
       apiClient.users.getAll('', 100),
       apiClient.courses.getAll(),
     ]);
-    if (enrollments.success && Array.isArray(enrollments.data)) setItems(enrollments.data as Enrollment[]);
+    const enrollmentRows = isLaravelApiEnabled
+      ? (enrollments.data as { items?: unknown[] } | undefined)?.items
+      : enrollments.data;
+    if (enrollments.success && Array.isArray(enrollmentRows)) setItems(enrollmentRows as Enrollment[]);
     else setError(enrollments.error || 'Could not load enrollments.');
     if (userResult.success && Array.isArray(userResult.data)) {
       setStudents((userResult.data as StudentOption[]).filter(user => user.role === 'student'));
@@ -59,11 +65,14 @@ export const EnrollmentManagement: React.FC = () => {
     if (!studentId || !courseId) return;
     setSaving(true);
     setError('');
-    const result = await apiClient.enrollments.create({
+    const payload = {
       user_id: Number(studentId),
       course_id: Number(courseId),
       status,
-    });
+    };
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.enrollments.create(payload)
+      : await apiClient.enrollments.create(payload);
     setSaving(false);
     if (!result.success) {
       setError(result.error || 'Enrollment could not be created.');
@@ -78,7 +87,9 @@ export const EnrollmentManagement: React.FC = () => {
   };
 
   const updateStatus = async (item: Enrollment, nextStatus: Enrollment['status']) => {
-    const result = await apiClient.enrollments.update(item.id, { status: nextStatus });
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.enrollments.update(item.id, { status: nextStatus })
+      : await apiClient.enrollments.update(item.id, { status: nextStatus });
     if (!result.success) {
       setError(result.error || 'Enrollment status could not be updated.');
       return;

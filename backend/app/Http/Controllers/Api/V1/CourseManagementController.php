@@ -39,14 +39,20 @@ class CourseManagementController extends Controller
 
         if ($actor->role === 'teacher') {
             $query->where(function ($owned) use ($actor): void {
-                $owned->where('courses.created_by', $actor->id)
-                    ->orWhereExists(function ($assignment) use ($actor): void {
-                        $assignment->selectRaw('1')
-                            ->from('teacher_course_assignments')
-                            ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
-                            ->where('teacher_course_assignments.teacher_user_id', $actor->id)
-                            ->where('teacher_course_assignments.is_active', 1);
-                    });
+                $owned->where(function ($creator) use ($actor): void {
+                    $creator->where('courses.created_by', $actor->id);
+                    if ($actor->branch_id === null) {
+                        $creator->whereNull('courses.branch_id');
+                    } else {
+                        $creator->where('courses.branch_id', $actor->branch_id);
+                    }
+                })->orWhereExists(function ($assignment) use ($actor): void {
+                    $assignment->selectRaw('1')
+                        ->from('teacher_course_assignments')
+                        ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
+                        ->where('teacher_course_assignments.teacher_user_id', $actor->id)
+                        ->where('teacher_course_assignments.is_active', 1);
+                });
             });
         } elseif (LmsPermission::allows($actor, 'courses.manage')) {
             if ($actor->role === 'branch_manager') {

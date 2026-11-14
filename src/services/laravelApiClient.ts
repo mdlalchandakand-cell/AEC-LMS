@@ -157,6 +157,10 @@ class LaravelApiService {
     purgeExpired: () => this.request<{ purged: number; blocked: Array<{ id: number; reason: string }>; checked: number }>('/api/v1/recycle-bin/purge-expired', { method: 'POST' }),
   };
 
+  public catalog = {
+    courses: (query = '', perPage = 50) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/courses?per_page=' + encodeURIComponent(String(perPage)) + (query ? '&q=' + encodeURIComponent(query) : '')),
+  };
+
   public courses = {
     contents: (id: number) => this.request<{ items: unknown[] }>('/api/v1/courses/' + id + '/contents'),
     progress: (id: number) => this.request('/api/v1/courses/' + id + '/progress'),

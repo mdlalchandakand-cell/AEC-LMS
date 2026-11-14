@@ -158,6 +158,21 @@ class LaravelApiService {
     purgeExpired: () => this.request<{ purged: number; blocked: Array<{ id: number; reason: string }>; checked: number }>('/api/v1/recycle-bin/purge-expired', { method: 'POST' }),
   };
 
+  public expenses = {
+    categories: () => this.request<{ items: Array<{ id: number; name: string; name_bn?: string | null }> }>('/api/v1/expenses/categories'),
+    list: (filters: { status?: string; from?: string; to?: string; per_page?: number } = {}) => {
+      const query = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)); });
+      const queryString = query.toString();
+      return this.request<{ data: Array<Record<string, unknown>>; total: number; current_page: number; last_page: number }>('/api/v1/expenses' + (queryString ? '?' + queryString : ''));
+    },
+    create: (payload: Record<string, unknown>) => this.request<{ id: number; status: string }>('/api/v1/expenses', { method: 'POST', body: JSON.stringify(payload) }),
+    update: (id: number, payload: Record<string, unknown>) => this.request('/api/v1/expenses/' + id, { method: 'PATCH', body: JSON.stringify(payload) }),
+    review: (id: number, decision: 'approved' | 'rejected', reason?: string) => this.request('/api/v1/expenses/' + id + '/review', { method: 'POST', body: JSON.stringify({ decision, reason }) }),
+    markPaid: (id: number, paidReference?: string) => this.request('/api/v1/expenses/' + id + '/mark-paid', { method: 'POST', body: JSON.stringify({ paid_reference: paidReference }) }),
+    remove: (id: number) => this.request('/api/v1/expenses/' + id, { method: 'DELETE' }),
+  };
+
   public catalog = {
     courses: (query = '', perPage = 50) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/courses?per_page=' + encodeURIComponent(String(perPage)) + (query ? '&q=' + encodeURIComponent(query) : '')),
   };

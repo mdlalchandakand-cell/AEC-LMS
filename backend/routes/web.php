@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\CourseManagementController;
 use App\Http\Controllers\Api\V1\CertificateController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
+use App\Http\Controllers\Api\V1\ExpenseController;
 use App\Http\Controllers\Api\V1\ExamController;
 use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\TeacherCommissionController;
@@ -208,4 +209,18 @@ Route::prefix('api/v1/payments')
         Route::post('/{payment}/refund', [PaymentController::class, 'refund'])->whereNumber('payment')->name('refund');
         Route::get('/ledger', [PaymentController::class, 'ledger'])->name('ledger');
         Route::get('/reconcile', [PaymentController::class, 'reconcile'])->name('reconcile');
+    });
+
+
+Route::prefix('api/v1/expenses')
+    ->name('api.v1.expenses.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/categories', [ExpenseController::class, 'categories'])->name('categories');
+        Route::get('/', [ExpenseController::class, 'index'])->name('index');
+        Route::post('/', [ExpenseController::class, 'store'])->name('store');
+        Route::patch('/{expense}', [ExpenseController::class, 'update'])->whereNumber('expense')->name('update');
+        Route::post('/{expense}/review', [ExpenseController::class, 'review'])->whereNumber('expense')->name('review');
+        Route::post('/{expense}/mark-paid', [ExpenseController::class, 'markPaid'])->whereNumber('expense')->name('mark-paid');
+        Route::delete('/{expense}', [ExpenseController::class, 'destroy'])->whereNumber('expense')->name('destroy');
     });

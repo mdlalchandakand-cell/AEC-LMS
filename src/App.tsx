@@ -54,6 +54,7 @@ import { ConfirmDeleteModal } from './components/common/ConfirmDeleteModal';
 import { PluginManager } from './components/modules/PluginManager';
 import { RecycleBinManager } from './components/modules/RecycleBinManager';
 import { TeacherCommissionManager } from './components/modules/TeacherCommissionManager';
+import { ExpenseManager } from './components/modules/ExpenseManager';
 import { MarketingAnalyticsManager } from './components/modules/MarketingAnalyticsManager';
 import { EnvatoPackageExporter } from './components/modules/EnvatoPackageExporter';
 import { BranchManagement } from './components/modules/BranchManagement';
@@ -261,6 +262,9 @@ function LmsApp() {
 
       case 'live_classes':
         return <LiveClassManager />;
+
+      case 'expenses':
+        return <ExpenseManager />;
 
       case 'payments':
       case 'my_payments':

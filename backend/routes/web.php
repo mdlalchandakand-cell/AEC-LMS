@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CourseProgressController;
+use App\Http\Controllers\Api\V1\CourseManagementController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\LiveClassController;
@@ -38,6 +39,17 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::prefix('api/v1/course-management')
+    ->name('api.v1.course-management.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [CourseManagementController::class, 'index'])->name('index');
+        Route::post('/', [CourseManagementController::class, 'store'])->name('store');
+        Route::patch('/{course}', [CourseManagementController::class, 'update'])->whereNumber('course')->name('update');
+        Route::delete('/{course}', [CourseManagementController::class, 'destroy'])->whereNumber('course')->name('destroy');
+        Route::post('/{course}/restore', [CourseManagementController::class, 'restore'])->whereNumber('course')->name('restore');
     });
 
 Route::prefix('api/v1/teacher-commissions')

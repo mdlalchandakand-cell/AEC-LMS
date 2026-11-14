@@ -5,7 +5,7 @@ DirectoryIndex index.html
   RewriteEngine On
 
   # Never expose source, SQL migrations, documentation, tooling or VCS metadata.
-  RewriteRule ^(?:database|docs|scripts|src|node_modules|\.git|\.github)(?:/|$) - [F,L,NC]
+  RewriteRule ^(?:backend|database|docs|scripts|src|node_modules|\.git|\.github)(?:/|$) - [F,L,NC]
   RewriteRule ^(?:\.env(?:\..*)?|package\.json|bun\.lock|vite\.config\.ts|tsconfig\.json|README\.md|LICENSE)$ - [F,L,NC]
 
   # Keep PHP API routes and built static assets on their real paths.

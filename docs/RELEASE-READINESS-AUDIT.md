@@ -54,10 +54,15 @@ The merged baseline `07eff82e` passed:
 
 The cPanel workflow assembles the built `dist/` frontend with the real `api/`, `database/`, production CLI scripts, protected `storage/` rules and deployment documentation. It excludes `.env` files, VCS metadata, dependencies, logs and test-only scripts. Workflow artifacts expire after 14 days; create a tagged release or rerun the workflow when a fresh artifact is needed.
 
+## Laravel 12 migration status
+
+A Laravel 12 application foundation now exists in `backend/`: Composer project definition, framework bootstrap, web/API routing, configuration, an authentication model base, health endpoint and PHPUnit feature tests. This is a parallel foundation only. Existing production features still execute through the legacy PHP API. No existing API module has been declared migrated, and no Laravel migration has been run against the legacy LMS schema. CI must validate Composer dependency resolution and the Laravel health tests before this foundation is accepted. A real cPanel API-subdomain/document-root rehearsal is also required.
+
 ## Remaining release gates
 
 | Area | Remaining work before production |
 |---|---|
+| Laravel 12 backend | Resolve and lock Composer dependencies, pass Laravel feature tests, configure a separate `backend/public` document root, then migrate modules with authorization/branch parity tests. Current Laravel routes cover health only. |
 | cPanel installation | Install the exact ZIP on a clean staging account; verify PHP 8.3, PDO MySQL, mbstring, Apache rewrite, environment variables, permissions, SPA routes and upgrade path. |
 | Email | Verify sender domain/mailbox and complete registration, verification, resend and password-recovery smoke tests on the real host. Current transport uses PHP `mail()`, not a configured SMTP provider. |
 | Payments | Current bKash/Nagad/bank flow is staff-reviewed. Implement and verify provider callbacks/signatures, idempotency, automated settlement/refund handling, receipts and reconciliation before claiming gateway automation. |

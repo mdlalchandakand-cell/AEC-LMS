@@ -153,10 +153,14 @@ class ExamController extends Controller
 
         $canManage = $this->canManageExam($actor, $row);
         $questions = DB::table('exam_questions')
-            ->where('exam_id', $exam)
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get();
+            ->leftJoin('exam_question_bank_sources as bank_sources', 'bank_sources.exam_question_id', '=', 'exam_questions.id')
+            ->where('exam_questions.exam_id', $exam)
+            ->orderBy('exam_questions.sort_order')
+            ->orderBy('exam_questions.id')
+            ->get([
+                'exam_questions.*',
+                'bank_sources.question_bank_item_id',
+            ]);
 
         $items = [];
         foreach ($questions as $question) {
@@ -171,6 +175,9 @@ class ExamController extends Controller
             if ($canManage) {
                 $item['correct_option_index'] = (int) $question->correct_option_index;
                 $item['explanation'] = $question->explanation;
+                $item['question_bank_item_id'] = $question->question_bank_item_id === null
+                    ? null
+                    : (int) $question->question_bank_item_id;
             }
             $items[] = $item;
         }

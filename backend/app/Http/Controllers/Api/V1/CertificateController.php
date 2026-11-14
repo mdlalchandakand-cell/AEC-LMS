@@ -204,17 +204,42 @@ class CertificateController extends Controller
                 ->where('user_id', $student->id)
                 ->where('course_id', $course->id)
                 ->whereIn('status', ['active', 'completed'])
+                ->where(function ($window): void {
+                    $window->whereNull('ends_at')
+                        ->orWhere('ends_at', '>', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+                })
                 ->lockForUpdate()
                 ->first(['id', 'status', 'completed_at', 'branch_id']);
+
+            $subscriptionCourse = null;
             if (!$enrollment) {
-                return response()->json(['success' => false, 'message' => 'Student must be enrolled in this course before a certificate can be issued.', 'error' => 'Conflict.'], 409);
+                $subscriptionCourse = DB::table('user_subscription_courses as selected')
+                    ->join('user_subscriptions as subscriptions', 'subscriptions.id', '=', 'selected.subscription_id')
+                    ->where('selected.user_id', $student->id)
+                    ->where('selected.course_id', $course->id)
+                    ->where('selected.status', 'active')
+                    ->where('subscriptions.status', 'active')
+                    ->where(function ($starts): void {
+                        $starts->whereNull('subscriptions.starts_at')
+                            ->orWhere('subscriptions.starts_at', '<=', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+                    })
+                    ->where(function ($ends): void {
+                        $ends->whereNull('subscriptions.ends_at')
+                            ->orWhere('subscriptions.ends_at', '>', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+                    })
+                    ->lockForUpdate()
+                    ->first(['selected.id', 'selected.branch_id', 'selected.selected_at']);
+            }
+            if (!$enrollment && !$subscriptionCourse) {
+                return response()->json(['success' => false, 'message' => 'Student must have an active enrollment or subscription course seat before a certificate can be issued.', 'error' => 'Conflict.'], 409);
             }
 
+            $accessBranchId = $enrollment?->branch_id ?? $subscriptionCourse?->branch_id;
             if ($actor->role === 'branch_manager'
                 && ((int) $student->branch_id !== (int) $actor->branch_id
-                    || (int) $course->branch_id !== (int) $actor->branch_id
-                    || (int) $enrollment->branch_id !== (int) $actor->branch_id)) {
-                return response()->json(['success' => false, 'message' => 'Student, course and enrollment must belong to your assigned branch.', 'error' => 'Forbidden.'], 403);
+                    || ($course->branch_id !== null && (int) $course->branch_id !== (int) $actor->branch_id)
+                    || ($accessBranchId !== null && (int) $accessBranchId !== (int) $actor->branch_id))) {
+                return response()->json(['success' => false, 'message' => 'Student, course and access record must belong to your assigned branch.', 'error' => 'Forbidden.'], 403);
             }
 
             $progress = DB::table('course_content as links')
@@ -234,7 +259,7 @@ class CertificateController extends Controller
 
             $totalItems = (int) ($progress->total_items ?? 0);
             $completedItems = (int) ($progress->completed_items ?? 0);
-            $isComplete = $enrollment->status === 'completed'
+            $isComplete = ($enrollment !== null && $enrollment->status === 'completed')
                 || ($totalItems > 0 && $completedItems === $totalItems);
             if (!$isComplete) {
                 return response()->json([
@@ -255,12 +280,12 @@ class CertificateController extends Controller
             $year = now('Asia/Dhaka')->format('Y');
             $certificateNumber = 'AEC-CERT-' . $year . '-' . strtoupper(bin2hex(random_bytes(16)));
             $studentCode = 'AEC-' . $year . '-' . str_pad((string) $student->id, 6, '0', STR_PAD_LEFT);
-            $completionDate = $enrollment->completed_at
+            $completionDate = ($enrollment?->completed_at)
                 ? substr((string) $enrollment->completed_at, 0, 10)
                 : ($progress->last_completed_at ? substr((string) $progress->last_completed_at, 0, 10) : now('Asia/Dhaka')->format('Y-m-d'));
-            $branchId = $enrollment->branch_id !== null
-                ? (int) $enrollment->branch_id
-                : ($course->branch_id !== null ? (int) $course->branch_id : null);
+            $branchId = $accessBranchId !== null
+                ? (int) $accessBranchId
+                : ($course->branch_id !== null ? (int) $course->branch_id : ($student->branch_id !== null ? (int) $student->branch_id : null));
 
             $id = (int) DB::table('certificates')->insertGetId([
                 'certificate_number' => $certificateNumber,

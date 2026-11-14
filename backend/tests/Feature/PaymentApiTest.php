@@ -48,8 +48,11 @@ class PaymentApiTest extends TestCase
 
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('branch_id')->nullable();
             $table->string('title', 180);
             $table->string('slug', 200)->unique();
+            $table->decimal('price', 12, 2)->default(0);
+            $table->string('status', 20)->default('draft');
             $table->timestamps();
             $table->softDeletes();
         });
@@ -69,6 +72,7 @@ class PaymentApiTest extends TestCase
             $table->dateTime('reviewed_at')->nullable();
             $table->unsignedBigInteger('reviewed_by')->nullable();
             $table->string('rejection_reason', 500)->nullable();
+            $table->unique(['payment_method', 'trx_id']);
         });
 
         Schema::create('payment_refunds', function (Blueprint $table): void {
@@ -174,6 +178,139 @@ class PaymentApiTest extends TestCase
             ->assertJsonPath('data.pagination.total', 1)
             ->assertJsonPath('data.items.0.trx_id', 'AEC-BR10-001')
             ->assertJsonMissing(['trx_id' => 'AEC-BR20-001']);
+    }
+
+    public function test_student_can_submit_manual_payment_with_remaining_fee_calculated(): void
+    {
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1000.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('student@example.test');
+
+        $this->postJson('/api/v1/payments', [
+            'course_id' => $courseId,
+            'amount' => '600.00',
+            'method' => 'bKash',
+            'trx_id' => 'AEC-SUBMIT-001',
+            'sender_phone' => '01700000000',
+        ])->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.remaining_amount', '400.00');
+
+        $this->assertDatabaseHas('course_payments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'amount' => '600.00',
+            'payment_method' => 'bKash',
+            'trx_id' => 'AEC-SUBMIT-001',
+            'status' => 'pending',
+        ]);
+    }
+
+    public function test_payment_submission_cannot_exceed_remaining_course_fee(): void
+    {
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1500.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->createPayment($studentId, $courseId, null, 'pending', 'AEC-PRIOR-001');
+
+        $this->login('student@example.test');
+
+        $this->postJson('/api/v1/payments', [
+            'course_id' => $courseId,
+            'amount' => '300.00',
+            'method' => 'Nagad',
+            'trx_id' => 'AEC-OVERPAY-001',
+        ])->assertUnprocessable()
+            ->assertJsonPath('data.remaining_amount', '250.00');
+
+        $this->assertDatabaseMissing('course_payments', [
+            'trx_id' => 'AEC-OVERPAY-001',
+        ]);
+    }
+
+    public function test_non_student_cannot_submit_a_course_payment(): void
+    {
+        $this->createUser('admin@example.test', 'admin');
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments', [
+            'course_id' => 1,
+            'amount' => '100.00',
+            'method' => 'bKash',
+            'trx_id' => 'AEC-ADMIN-001',
+        ])->assertForbidden();
+    }
+
+    public function test_payment_submission_rejects_inactive_student_branch(): void
+    {
+        DB::table('branches')->where('id', 10)->update(['is_active' => 0]);
+        $studentId = $this->createUser('student@example.test', 'student', 10);
+        $courseId = DB::table('courses')->insertGetId([
+            'branch_id' => 10,
+            'title' => 'Branch Course',
+            'slug' => 'branch-course',
+            'price' => '1000.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('student@example.test');
+
+        $this->postJson('/api/v1/payments', [
+            'course_id' => $courseId,
+            'amount' => '100.00',
+            'method' => 'Bank Transfer',
+            'trx_id' => 'AEC-INACTIVE-001',
+        ])->assertStatus(409);
+
+        $this->assertDatabaseMissing('course_payments', [
+            'user_id' => $studentId,
+            'trx_id' => 'AEC-INACTIVE-001',
+        ]);
+    }
+
+    public function test_payment_transaction_reference_cannot_be_reused_for_same_method(): void
+    {
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1000.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('student@example.test');
+        $payload = [
+            'course_id' => $courseId,
+            'amount' => '100.00',
+            'method' => 'bKash',
+            'trx_id' => 'AEC-REUSE-001',
+        ];
+
+        $this->postJson('/api/v1/payments', $payload)->assertCreated();
+        $this->postJson('/api/v1/payments', $payload)->assertStatus(409);
+
+        $this->assertSame(1, DB::table('course_payments')
+            ->where('user_id', $studentId)
+            ->where('trx_id', 'AEC-REUSE-001')
+            ->count());
     }
 
     public function test_users_without_payment_management_permission_are_forbidden(): void

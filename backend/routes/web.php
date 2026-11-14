@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CourseProgressController;
+use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\PaymentController;
@@ -36,6 +37,19 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::prefix('api/v1/guardians')
+    ->name('api.v1.guardians.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [GuardianController::class, 'index'])->name('index');
+        Route::get('/my-students', [GuardianController::class, 'myStudents'])->name('my-students');
+        Route::post('/requests', [GuardianController::class, 'store'])->name('requests.store');
+        Route::get('/incoming', [GuardianController::class, 'incoming'])->name('incoming');
+        Route::get('/summary', [GuardianController::class, 'summary'])->name('summary');
+        Route::post('/{link}/respond', [GuardianController::class, 'respond'])->whereNumber('link')->name('respond');
+        Route::post('/{link}/revoke', [GuardianController::class, 'revoke'])->whereNumber('link')->name('revoke');
     });
 
 Route::prefix('api/v1/courses')

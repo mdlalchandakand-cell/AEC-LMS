@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 import { RefreshCw, CheckCircle2, Clock, XCircle, Wallet, RotateCcw, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 type Payment = {
@@ -27,19 +28,26 @@ export const PaymentApiPanel:React.FC=()=>{
 
  const load=useCallback(async()=>{
   setLoading(true);setError('');
-  const session=await apiClient.auth.me();
+  const session=isLaravelApiEnabled?await laravelApiClient.auth.me():await apiClient.auth.me();
   if(!session.success){setError(session.error||'Please sign in through the secure LMS login first.');setLoading(false);return;}
   const role=(session.data?.user as {role?:string}|undefined)?.role||'';
   setServerRole(role);
   const isStudent=role==='student';
-  const p=isStudent?await apiClient.payments.getMine():await apiClient.payments.getAll(status);
-  if(p.success&&Array.isArray(p.data))setPayments(p.data as Payment[]);else setError(p.error||'Could not load payment records. Financial access is restricted to authorized staff.');
+  const p=isLaravelApiEnabled
+   ?(isStudent?await laravelApiClient.payments.my(50):await laravelApiClient.payments.list(status,100))
+   :(isStudent?await apiClient.payments.getMine():await apiClient.payments.getAll(status));
+  const paymentRows=isLaravelApiEnabled?(p.data as {items?:unknown[]}|undefined)?.items:p.data;
+  if(p.success&&Array.isArray(paymentRows))setPayments(paymentRows as Payment[]);else setError(p.error||'Could not load payment records. Financial access is restricted to authorized staff.');
   if(isStudent){
    const c=await apiClient.courses.getAll();if(c.success&&Array.isArray(c.data))setCourses(c.data as Course[]);
    setLedger([]);setReconciliation(null);
   } else if(p.success){
-   const [l,r]=await Promise.all([apiClient.payments.getLedger(),apiClient.payments.reconcile()]);
-   if(l.success&&Array.isArray(l.data))setLedger(l.data as Ledger[]);else setError(l.error||'Could not load ledger entries.');
+   const [l,r]=await Promise.all([
+    isLaravelApiEnabled?laravelApiClient.payments.ledger():apiClient.payments.getLedger(),
+    isLaravelApiEnabled?laravelApiClient.payments.reconcile():apiClient.payments.reconcile(),
+   ]);
+   const ledgerRows=isLaravelApiEnabled?(l.data as {items?:unknown[]}|undefined)?.items:l.data;
+   if(l.success&&Array.isArray(ledgerRows))setLedger(ledgerRows as Ledger[]);else setError(l.error||'Could not load ledger entries.');
    if(r.success&&r.data)setReconciliation(r.data as Reconciliation);else setError(r.error||'Could not reconcile the ledger.');
   }
   setLoading(false);
@@ -48,13 +56,18 @@ export const PaymentApiPanel:React.FC=()=>{
 
  const submit=async(e:React.FormEvent)=>{
   e.preventDefault();setSaving(true);setError('');
-  const r=await apiClient.payments.submit({course_id:Number(courseId),amount:Number(amount),method,trx_id:trx.trim(),sender_phone:phone.trim()||undefined});
+  const payload={course_id:Number(courseId),amount:amount.trim(),method,trx_id:trx.trim(),sender_phone:phone.trim()||undefined};
+  const r=isLaravelApiEnabled
+   ?await laravelApiClient.payments.submit(payload)
+   :await apiClient.payments.submit({...payload,amount:Number(amount)});
   setSaving(false);if(!r.success){setError(r.error||'Payment submission failed.');return;}
   setNotice('Payment submitted for manual verification.');setAmount('');setTrx('');setPhone('');await load();
  };
  const review=async(p:Payment,action:'verify'|'reject')=>{
   setSaving(true);setError('');
-  const r=action==='verify'?await apiClient.payments.verify(p.id):await apiClient.payments.reject(p.id,reason.trim());
+  const r=action==='verify'
+   ?(isLaravelApiEnabled?await laravelApiClient.payments.verify(p.id):await apiClient.payments.verify(p.id))
+   :(isLaravelApiEnabled?await laravelApiClient.payments.reject(p.id,reason.trim()):await apiClient.payments.reject(p.id,reason.trim()));
   setSaving(false);if(!r.success){setError(r.error||'Payment review failed.');return;}
   setNotice(action==='verify'?'Payment verified and balanced ledger entries posted.':'Payment rejected.');
   setRejectId(null);setReason('');await load();
@@ -67,7 +80,10 @@ export const PaymentApiPanel:React.FC=()=>{
  const recordRefund=async(e:React.FormEvent)=>{
   e.preventDefault();if(refundId===null)return;
   setSaving(true);setError('');
-  const r=await apiClient.payments.refund(refundId,{amount:refundAmount,refund_reference:refundReference.trim(),reason:refundReason.trim()});
+  const refundPayload={amount:refundAmount,refund_reference:refundReference.trim(),reason:refundReason.trim()};
+  const r=isLaravelApiEnabled
+   ?await laravelApiClient.payments.refund(refundId,refundPayload)
+   :await apiClient.payments.refund(refundId,refundPayload);
   setSaving(false);
   if(!r.success){setError(r.error||'Refund could not be recorded.');return;}
   setNotice(`Refund recorded. Journal: ${r.data?.ledger_reference || 'posted'}; remaining refundable: ৳${money(r.data?.remaining_refundable || '0.00')}.`);

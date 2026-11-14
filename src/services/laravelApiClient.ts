@@ -135,7 +135,7 @@ class LaravelApiService {
   public courses = {
     contents: (id: number) => this.request<{ items: unknown[] }>('/api/v1/courses/' + id + '/contents'),
     progress: (id: number) => this.request('/api/v1/courses/' + id + '/progress'),
-    saveProgress: (payload: Record<string, unknown>) => this.request('/api/v1/course-progress', { method: 'POST', body: JSON.stringify(payload) }),
+    saveProgress: (payload: Record<string, unknown>) => this.request('/api/v1/progress/lessons', { method: 'POST', body: JSON.stringify(payload) }),
   };
 }
 

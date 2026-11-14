@@ -172,6 +172,7 @@ Route::prefix('api/v1/recycle-bin')
     ->middleware(['auth', 'lms.session'])
     ->group(function (): void {
         Route::get('/', [RecycleBinController::class, 'index'])->name('index');
+        Route::post('/purge-expired', [RecycleBinController::class, 'purgeExpired'])->name('purge-expired');
         Route::post('/{item}/restore', [RecycleBinController::class, 'restore'])->whereNumber('item')->name('restore');
         Route::post('/{item}/permanent-delete', [RecycleBinController::class, 'permanentlyDelete'])->whereNumber('item')->name('permanent-delete');
     });

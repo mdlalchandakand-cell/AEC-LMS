@@ -374,7 +374,10 @@ class ContentManagementController extends Controller
     private function canManageCourse($actor, object $course): bool
     {
         if ($actor->role === 'teacher') {
-            return (int) $course->created_by === (int) $actor->id
+            $sameBranch = $course->branch_id === null
+                ? $actor->branch_id === null
+                : ($actor->branch_id !== null && (int) $course->branch_id === (int) $actor->branch_id);
+            return ((int) $course->created_by === (int) $actor->id && $sameBranch)
                 || DB::table('teacher_course_assignments')
                     ->where('course_id', $course->id)
                     ->where('teacher_user_id', $actor->id)

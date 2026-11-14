@@ -46,4 +46,6 @@ Route::prefix('api/v1/payments')
         Route::post('/{payment}/verify', [PaymentController::class, 'verify'])->whereNumber('payment')->name('verify');
         Route::post('/{payment}/reject', [PaymentController::class, 'reject'])->whereNumber('payment')->name('reject');
         Route::post('/{payment}/refund', [PaymentController::class, 'refund'])->whereNumber('payment')->name('refund');
+        Route::get('/ledger', [PaymentController::class, 'ledger'])->name('ledger');
+        Route::get('/reconcile', [PaymentController::class, 'reconcile'])->name('reconcile');
     });

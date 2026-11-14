@@ -118,6 +118,7 @@ Route::prefix('api/v1/courses')
     ->name('api.v1.courses.')
     ->middleware(['auth', 'lms.session'])
     ->group(function (): void {
+        Route::get('/{course}/contents', [CourseProgressController::class, 'contents'])->whereNumber('course')->name('contents');
         Route::get('/{course}/progress', [CourseProgressController::class, 'show'])->whereNumber('course')->name('progress');
     });
 
@@ -185,6 +186,8 @@ Route::prefix('api/v1/subscriptions')
         Route::delete('/plans/{plan}', [SubscriptionController::class, 'deletePlan'])->whereNumber('plan')->name('plans.destroy');
         Route::get('/my', [SubscriptionController::class, 'my'])->name('my');
         Route::get('/my/access', [SubscriptionController::class, 'access'])->name('my.access');
+        Route::get('/my/courses', [SubscriptionController::class, 'myCourses'])->name('my.courses');
+        Route::post('/{subscription}/courses', [SubscriptionController::class, 'selectCourse'])->whereNumber('subscription')->name('courses.select');
         Route::post('/{subscription}/cancel', [SubscriptionController::class, 'cancel'])->whereNumber('subscription')->name('cancel');
         Route::get('/', [SubscriptionController::class, 'index'])->name('index');
         Route::post('/', [SubscriptionController::class, 'store'])->name('store');

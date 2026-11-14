@@ -24,6 +24,7 @@ import {
 } from '../data/initialData';
 import { translations } from '../data/translations';
 import { apiClient } from '../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../services/laravelApiClient';
 
 interface LmsContextType {
   language: Language;
@@ -268,14 +269,31 @@ export const LmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const result = await apiClient.auth.login(email, password);
     const serverUser = result.data?.user as any;
     if (!result.success || !serverUser) return { success: false, error: result.error || result.message || 'Login failed.' };
+
+    if (isLaravelApiEnabled) {
+      const laravelResult = await laravelApiClient.auth.login(email, password);
+      const laravelUser = laravelResult.data?.user as any;
+      if (!laravelResult.success || !laravelUser || String(laravelUser.id) !== String(serverUser.id)) {
+        await Promise.allSettled([apiClient.auth.logout(), laravelApiClient.auth.logout()]);
+        return {
+          success: false,
+          error: laravelResult.error || laravelResult.message || 'Laravel session could not be established for this account.',
+        };
+      }
+    }
+
     setCurrentUser(mapServerUser(serverUser));
     setIsAuthenticated(true);
     return { success: true };
   };
 
   const signOut = async (): Promise<{ success: boolean; error?: string }> => {
-    const result = await apiClient.auth.logout();
-    if (!result.success) return { success: false, error: result.error || 'Logout failed.' };
+    const results = await Promise.all([
+      apiClient.auth.logout(),
+      isLaravelApiEnabled ? laravelApiClient.auth.logout() : Promise.resolve({ success: true }),
+    ]);
+    const legacyResult = results[0];
+    if (!legacyResult.success) return { success: false, error: legacyResult.error || 'Logout failed.' };
     setIsAuthenticated(false);
     setCurrentUser(users.find(user => user.role === 'admin') || users[0]);
     setActiveView('home');
@@ -284,20 +302,37 @@ export const LmsProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   useEffect(() => {
     let mounted = true;
-    apiClient.auth.me().then(result => {
-      if (!mounted) return;
-      const serverUser = result.data?.user as any;
-      if (result.success && serverUser) {
-        setCurrentUser(mapServerUser(serverUser));
-        setIsAuthenticated(true);
-      } else {
-        setIsAuthenticated(false);
+    const restoreSession = async () => {
+      try {
+        const result = await apiClient.auth.me();
+        if (!mounted) return;
+        const serverUser = result.data?.user as any;
+        if (!result.success || !serverUser) {
+          setIsAuthenticated(false);
+          return;
+        }
+
+        if (isLaravelApiEnabled) {
+          const laravelResult = await laravelApiClient.auth.me();
+          const laravelUser = laravelResult.data?.user as any;
+          if (!laravelResult.success || !laravelUser || String(laravelUser.id) !== String(serverUser.id)) {
+            await Promise.allSettled([apiClient.auth.logout(), laravelApiClient.auth.logout()]);
+            if (mounted) setIsAuthenticated(false);
+            return;
+          }
+        }
+
+        if (mounted) {
+          setCurrentUser(mapServerUser(serverUser));
+          setIsAuthenticated(true);
+        }
+      } catch {
+        if (mounted) setIsAuthenticated(false);
+      } finally {
+        if (mounted) setAuthLoading(false);
       }
-    }).catch(() => {
-      if (mounted) setIsAuthenticated(false);
-    }).finally(() => {
-      if (mounted) setAuthLoading(false);
-    });
+    };
+    void restoreSession();
     return () => { mounted = false; };
   }, []);
 

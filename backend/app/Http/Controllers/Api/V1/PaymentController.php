@@ -13,11 +13,15 @@ class PaymentController extends Controller
 {
     public function my(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'per_page' => ['sometimes', 'integer', 'min:1', 'max:50'],
+        ]);
+
         $payments = $this->paymentQuery()
             ->where('payments.user_id', $request->user()->id)
             ->orderByDesc('payments.submitted_at')
             ->orderByDesc('payments.id')
-            ->paginate((int) $request->input('per_page', 12));
+            ->paginate((int) ($validated['per_page'] ?? 12));
 
         return $this->response($payments, 'Your payments loaded.');
     }
@@ -42,10 +46,13 @@ class PaymentController extends Controller
         $query = $this->paymentQuery();
 
         if ($user->role === 'branch_manager') {
-            if (!$user->branch_id) {
+            if (!$user->branch_id || !DB::table('branches')
+                ->where('id', $user->branch_id)
+                ->where('is_active', 1)
+                ->exists()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Your account is not assigned to a branch.',
+                    'message' => 'Your account is not assigned to an active branch.',
                     'error' => 'Forbidden.',
                 ], 403);
             }

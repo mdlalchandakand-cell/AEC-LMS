@@ -62,20 +62,26 @@ class CourseProgressController extends Controller
                 'content.id',
                 'content.title',
                 'content.content_type',
+                'content.body',
                 'content.media_url',
                 'content.duration_minutes',
                 'links.sort_order',
+                'links.is_preview',
                 'progress.is_completed',
+                'progress.notes',
             ])
             ->map(function (object $item): array {
                 return [
                     'id' => (int) $item->id,
                     'title' => $item->title,
                     'content_type' => $item->content_type,
+                    'body' => $item->body,
                     'media_url' => $item->media_url,
                     'duration_minutes' => (int) $item->duration_minutes,
                     'sort_order' => (int) $item->sort_order,
+                    'is_preview' => (bool) $item->is_preview,
                     'is_completed' => (bool) $item->is_completed,
+                    'notes' => (string) ($item->notes ?? ''),
                 ];
             })
             ->values();

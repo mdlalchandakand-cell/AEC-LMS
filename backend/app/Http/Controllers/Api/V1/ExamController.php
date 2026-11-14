@@ -333,6 +333,7 @@ class ExamController extends Controller
         $canManage = $this->canManageAnyExam($actor);
         $query = DB::table('exam_attempts as attempts')
             ->join('exams', 'exams.id', '=', 'attempts.exam_id')
+            ->leftJoin('courses', 'courses.id', '=', 'exams.course_id')
             ->join('users', 'users.id', '=', 'attempts.user_id')
             ->select([
                 'attempts.id',

@@ -104,6 +104,20 @@ Teacher access is restricted to content/course ownership and active assignments;
 - `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.
 - `POST /api/v1/progress/lessons` — records completion and notes only for a published lesson linked to the course; repeated updates upsert the same user/course/lesson record rather than creating duplicates.
 
+## Laravel timed MCQ exam API
+
+- `GET /api/v1/exams` and `GET /api/v1/exams/{id}` — students see only published, currently open exams for global access or active/completed course enrollments; correct answers and explanations are hidden until grading.
+- `POST /api/v1/exams` — authorized exam managers and teachers create draft exams within their course scope.
+- `PUT /api/v1/exams/{id}/questions` — saves validated MCQ questions/options, correct option indexes, marks and explanations; questions/settings become immutable after an attempt starts.
+- `PATCH /api/v1/exams/{id}` — updates exam settings and publishes only after questions and marks are valid.
+- `POST /api/v1/exams/{id}/start` — creates or resumes a server-timed attempt and enforces maximum attempts.
+- `POST /api/v1/exams/attempts/{id}/answers` — saves only valid question/option indexes while the attempt remains in time.
+- `POST /api/v1/exams/attempts/{id}/submit` — grades on the server, applies negative marking, records the score and returns the answer review.
+- `GET /api/v1/exams/attempts` — students see their own attempts; authorized exam managers see permitted course attempts.
+- `DELETE /api/v1/exams/{id}` — archives an exam only when no attempts exist and records it in the recycle bin.
+
+Attempt ownership, time expiry, max attempts, answer indexes and grading are enforced server-side; a browser cannot submit its own score.
+
 ## Laravel live class API
 
 - `GET /api/v1/live-classes` — students see only non-cancelled classes for active/completed enrollments; teachers see their own classes; administrators and branch managers see permission-scoped schedules.
@@ -139,4 +153,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, teacher/admin course management, teacher content management and recycle restore, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, teacher/admin course management, teacher content management and recycle restore, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, timed MCQ exams and grading, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

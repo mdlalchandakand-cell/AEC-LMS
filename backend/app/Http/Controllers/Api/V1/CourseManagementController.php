@@ -163,12 +163,17 @@ class CourseManagementController extends Controller
     public function destroy(Request $request, int $course): JsonResponse
     {
         $actor = $request->user();
-        $existing = DB::table('courses')->where('id', $course)->whereNull('deleted_at')->lockForUpdate()->first();
-        if (!$existing || !$this->canManageCourse($actor, $existing)) {
-            return response()->json(['success' => false, 'message' => 'Course not found.', 'error' => 'Not found.'], 404);
-        }
+        $result = DB::transaction(function () use ($request, $actor, $course): array|JsonResponse {
+            $existing = DB::table('courses')
+                ->where('id', $course)
+                ->whereNull('deleted_at')
+                ->lockForUpdate()
+                ->first();
 
-        DB::transaction(function () use ($request, $actor, $existing, $course): void {
+            if (!$existing || !$this->canManageCourse($actor, $existing)) {
+                return response()->json(['success' => false, 'message' => 'Course not found.', 'error' => 'Not found.'], 404);
+            }
+
             $deletedAt = now();
             DB::table('courses')->where('id', $course)->update([
                 'deleted_at' => $deletedAt,
@@ -202,9 +207,15 @@ class CourseManagementController extends Controller
             ]);
 
             $this->audit($request, $actor->id, 'course.deleted', $course, []);
+
+            return ['id' => $course];
         });
 
-        return response()->json(['success' => true, 'message' => 'Course moved to recycle bin.', 'data' => ['id' => $course]]);
+        if ($result instanceof JsonResponse) {
+            return $result;
+        }
+
+        return response()->json(['success' => true, 'message' => 'Course moved to recycle bin.', 'data' => $result]);
     }
 
     public function restore(Request $request, int $course): JsonResponse

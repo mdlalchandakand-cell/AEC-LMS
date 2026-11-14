@@ -92,6 +92,19 @@ Teacher course ownership is checked server-side; changing an ID in the request c
 
 Teacher access is restricted to content/course ownership and active assignments; branch managers cannot modify content shared across other branches. Media links must use HTTPS.
 
+## Laravel subscription plans and course access
+
+- `GET /api/v1/subscriptions/plans` — lists active Bengali/English subscription plans and their price, billing period, duration, course-seat limit and feature list.
+- `POST /api/v1/subscriptions/plans`, `PUT /api/v1/subscriptions/plans/{id}`, and `DELETE /api/v1/subscriptions/plans/{id}` — authorized administrators manage and archive plans without deleting purchase history.
+- `POST /api/v1/subscriptions` — a student requests a paid plan using bKash, Nagad, card, internet banking, bank transfer, cash or offline payment reference. Free plans activate immediately; paid requests remain pending until reviewed.
+- `GET /api/v1/subscriptions/my`, `GET /api/v1/subscriptions/my/access`, and `GET /api/v1/subscriptions/my/courses` — students see their own subscription history, active entitlement and selected course seats.
+- `POST /api/v1/subscriptions/{id}/review` — reviewers with `subscriptions.review` approve or reject a pending payment; approval activates the plan for its configured duration and sends a notification. Accountant review is separate from plan-management permission.
+- `POST /api/v1/subscriptions/{id}/courses` — selects a published course under an active subscription and enforces `max_courses` before granting access.
+- `GET /api/v1/courses/{id}/contents`, course progress and course exam access recognize valid subscription course selections as well as normal enrollments. Cancellation or expiry removes subscription-based access.
+- `POST /api/v1/subscriptions/{id}/cancel` — students can cancel their own pending or active subscription; pending payment records are marked rejected and selected course seats are closed.
+
+Payment records are currently verified by an authorized staff member. Live bKash/Nagad/card gateway callbacks and automatic recurring billing are not enabled by this API slice; provider credentials, merchant approvals and callback signature verification must be implemented and tested before any gateway is advertised as live. Migrations `030_subscription_plans_and_payments.sql` and `032_subscription_course_access.sql` create the plan, payment and course-seat records.
+
 ## Laravel course completion certificates
 
 - `GET /api/v1/certificates/verify/{number}` — public verification returns the certificate snapshot and current validity/revocation status without exposing private student account data.

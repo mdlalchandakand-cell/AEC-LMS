@@ -31,6 +31,17 @@ Health checks:
 
 The catalog uses the existing `courses`, `course_categories`, `content_items`, and `course_content` tables. Soft-deleted records are excluded. Preview responses intentionally omit lesson body content and never return non-preview or unpublished lessons. No database migration is needed for this read-only slice.
 
+## Laravel session authentication API
+
+- `GET /api/v1/auth/csrf` — starts the Laravel web session and returns a CSRF token.
+- `POST /api/v1/auth/login` — authenticates an existing LMS user by email and `password_hash`.
+- `GET /api/v1/auth/me` — returns the signed-in user's safe profile and current CSRF token.
+- `POST /api/v1/auth/logout` — invalidates the Laravel session.
+
+Authentication uses a separate `aec_laravel_session` cookie and does not reuse or overwrite the legacy `AEC_LMS_SESSION` cookie. Disabled accounts are rejected, login attempts are limited per email/IP, and a changed `session_version` invalidates an existing Laravel session. Role, branch, active-status and session-version fields are not mass assignable.
+
+For a frontend hosted on a different subdomain, configure exact trusted origins in `CORS_ALLOWED_ORIGINS` (comma-separated), set `SESSION_DOMAIN` to the parent domain (for example `.example.com`), keep `SESSION_SECURE_COOKIE=true`, and use HTTPS. The frontend must send credentials and the returned token in the `X-CSRF-TOKEN` header on state-changing requests. Do not use a wildcard origin with credentialed cookies.
+
 ## Migration policy
 
 Do not remove or redirect the existing `/api/*.php` endpoints until each matching Laravel implementation has:

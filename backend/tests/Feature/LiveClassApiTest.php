@@ -74,6 +74,24 @@ class LiveClassApiTest extends TestCase
             $table->unique(['user_id', 'course_id']);
         });
 
+        Schema::create('user_subscriptions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('status', 20);
+            $table->dateTime('starts_at')->nullable();
+            $table->dateTime('ends_at')->nullable();
+        });
+
+        Schema::create('user_subscription_courses', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('subscription_id');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('status', 20);
+            $table->dateTime('selected_at')->nullable();
+        });
+
         Schema::create('live_classes', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('course_id');
@@ -84,6 +102,7 @@ class LiveClassApiTest extends TestCase
             $table->string('timezone', 64)->default('Asia/Dhaka');
             $table->string('meeting_platform', 20);
             $table->string('meeting_url', 2048);
+            $table->unsignedSmallInteger('participant_limit')->default(300);
             $table->string('recording_url', 2048)->nullable();
             $table->string('status', 20)->default('upcoming');
             $table->unsignedBigInteger('created_by');
@@ -375,4 +394,76 @@ class LiveClassApiTest extends TestCase
 
         $this->assertSame(0, DB::table('live_classes')->count());
     }
+    public function test_teacher_can_schedule_youtube_unlisted_stream_with_300_plus_capacity_for_subscription_students(): void
+    {
+        $teacherId = $this->createUser('teacher@example.test', 'teacher', 10);
+        $studentId = $this->createUser('subscriber@example.test', 'student', 10);
+        $courseId = $this->createCourse('SSC English', 'ssc-english-youtube', 10);
+        $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
+            'user_id' => $studentId,
+            'status' => 'active',
+            'starts_at' => now()->subMinute(),
+            'ends_at' => now()->addDays(20),
+        ]);
+        DB::table('user_subscription_courses')->insert([
+            'subscription_id' => $subscriptionId,
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'branch_id' => 10,
+            'status' => 'active',
+            'selected_at' => now(),
+        ]);
+        $this->grant('teacher');
+        $this->login('teacher@example.test');
+
+        $response = $this->postJson('/api/v1/live-classes', [
+            'course_id' => $courseId,
+            'title' => 'Large Audience YouTube Class',
+            'date' => '2026-11-20',
+            'time' => '15:00',
+            'meeting_platform' => 'youtube_unlisted',
+            'meeting_url' => 'https://www.youtube.com/live/abcdefghijk',
+            'participant_limit' => 500,
+        ])->assertCreated();
+
+        $liveClassId = (int) $response->json('data.id');
+        $this->assertDatabaseHas('live_classes', [
+            'id' => $liveClassId,
+            'meeting_platform' => 'youtube_unlisted',
+            'participant_limit' => 500,
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'recipient_user_id' => $studentId,
+            'title' => 'New live class scheduled',
+        ]);
+
+        $this->postJson('/api/v1/auth/logout', []);
+        $this->login('subscriber@example.test');
+        $this->getJson('/api/v1/live-classes')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.id', $liveClassId)
+            ->assertJsonPath('data.items.0.participant_limit', 500);
+    }
+
+    public function test_live_class_capacity_cannot_be_configured_below_300(): void
+    {
+        $this->createUser('teacher@example.test', 'teacher', 10);
+        $courseId = $this->createCourse('SSC English', 'ssc-english-small-capacity', 10);
+        $this->grant('teacher');
+        $this->login('teacher@example.test');
+
+        $this->postJson('/api/v1/live-classes', [
+            'course_id' => $courseId,
+            'title' => 'Too Small Audience',
+            'date' => '2026-11-20',
+            'time' => '15:00',
+            'meeting_platform' => 'google_meet',
+            'meeting_url' => 'https://meet.google.com/abc-defg-hij',
+            'participant_limit' => 100,
+        ])->assertUnprocessable();
+
+        $this->assertSame(0, DB::table('live_classes')->count());
+    }
+
 }

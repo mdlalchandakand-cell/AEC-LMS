@@ -838,6 +838,145 @@ class PaymentController extends Controller
         ]);
     }
 
+    public function ledger(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        if (!LmsPermission::allows($actor, 'payments.manage')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to view the payment ledger.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        if ($actor->role === 'branch_manager' && (!$actor->branch_id || !DB::table('branches')
+            ->where('id', $actor->branch_id)
+            ->where('is_active', 1)
+            ->exists())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is not assigned to an active branch.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        $query = DB::table('ledger_transactions as t')
+            ->leftJoin('course_payments as p', 'p.id', '=', 't.payment_id')
+            ->leftJoin('payment_refunds as r', 'r.id', '=', 't.refund_id')
+            ->leftJoin('course_payments as refund_payment', 'refund_payment.id', '=', 'r.payment_id')
+            ->join('users as u', function ($join): void {
+                $join->on('u.id', '=', DB::raw('COALESCE(p.user_id, refund_payment.user_id)'));
+            })
+            ->join('courses as courses', function ($join): void {
+                $join->on('courses.id', '=', DB::raw('COALESCE(p.course_id, refund_payment.course_id)'));
+            })
+            ->join('ledger_entries as entries', 'entries.transaction_id', '=', 't.id')
+            ->join('accounting_accounts as accounts', 'accounts.id', '=', 'entries.account_id')
+            ->select([
+                't.id as ledger_id',
+                't.reference',
+                't.description',
+                't.created_at',
+                'u.name as student_name',
+                'courses.title as course_title',
+                'r.refund_reference',
+                'r.reason as refund_reason',
+                'accounts.account_code',
+                'accounts.account_name',
+                'entries.debit',
+                'entries.credit',
+            ])
+            ->selectRaw('COALESCE(p.id, refund_payment.id) AS payment_id')
+            ->selectRaw('COALESCE(p.user_id, refund_payment.user_id) AS user_id')
+            ->selectRaw('COALESCE(p.course_id, refund_payment.course_id) AS course_id')
+            ->selectRaw('CASE WHEN r.id IS NOT NULL THEN r.amount ELSE p.amount END AS amount')
+            ->selectRaw('COALESCE(p.currency, r.currency) AS currency')
+            ->selectRaw('COALESCE(p.payment_method, refund_payment.payment_method) AS payment_method')
+            ->selectRaw('COALESCE(p.trx_id, r.refund_reference) AS trx_id')
+            ->selectRaw("CASE WHEN r.id IS NOT NULL THEN 'refund' ELSE 'payment' END AS transaction_type");
+
+        if ($actor->role === 'branch_manager') {
+            $query->whereRaw('COALESCE(p.branch_id, refund_payment.branch_id) = ?', [(int) $actor->branch_id]);
+        }
+
+        $items = $query
+            ->orderByDesc('t.created_at')
+            ->orderBy('entries.id')
+            ->limit(1000)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment ledger loaded.',
+            'data' => ['items' => $items],
+        ]);
+    }
+
+    public function reconcile(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        if (!LmsPermission::allows($actor, 'payments.manage')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to reconcile the payment ledger.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        if ($actor->role === 'branch_manager' && (!$actor->branch_id || !DB::table('branches')
+            ->where('id', $actor->branch_id)
+            ->where('is_active', 1)
+            ->exists())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account is not assigned to an active branch.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        $query = DB::table('ledger_transactions as t')
+            ->leftJoin('course_payments as p', 'p.id', '=', 't.payment_id')
+            ->leftJoin('payment_refunds as r', 'r.id', '=', 't.refund_id')
+            ->leftJoin('course_payments as refund_payment', 'refund_payment.id', '=', 'r.payment_id')
+            ->join('users as u', function ($join): void {
+                $join->on('u.id', '=', DB::raw('COALESCE(p.user_id, refund_payment.user_id)'));
+            })
+            ->leftJoin('ledger_entries as entries', 'entries.transaction_id', '=', 't.id')
+            ->select([
+                't.id as ledger_id',
+                't.reference',
+                't.created_at',
+                'u.name as student_name',
+                'p.branch_id',
+                'refund_payment.branch_id as refund_branch_id',
+            ])
+            ->selectRaw("CASE WHEN r.id IS NOT NULL THEN 'refund' ELSE 'payment' END AS transaction_type")
+            ->selectRaw('COALESCE(p.id, refund_payment.id) AS payment_id')
+            ->selectRaw('COALESCE(SUM(entries.debit), 0) AS debit_total')
+            ->selectRaw('COALESCE(SUM(entries.credit), 0) AS credit_total')
+            ->selectRaw('COUNT(entries.id) AS entry_count');
+
+        if ($actor->role === 'branch_manager') {
+            $query->whereRaw('COALESCE(p.branch_id, refund_payment.branch_id) = ?', [(int) $actor->branch_id]);
+        }
+
+        $discrepancies = $query
+            ->groupBy('t.id', 'r.id', 'p.id', 'refund_payment.id', 'u.name', 'p.branch_id', 'refund_payment.branch_id')
+            ->havingRaw('COUNT(entries.id) < 2 OR ABS(COALESCE(SUM(entries.debit), 0) - COALESCE(SUM(entries.credit), 0)) > 0.01')
+            ->orderByDesc('t.created_at')
+            ->limit(500)
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ledger reconciliation completed.',
+            'data' => [
+                'balanced' => $discrepancies->isEmpty(),
+                'discrepancies' => $discrepancies,
+            ],
+        ]);
+    }
+
     private function paymentQuery(): Builder
     {
         $refunds = DB::table('payment_refunds')

@@ -30,6 +30,17 @@ class AuthenticationApiTest extends TestCase
             $table->timestamp('created_at')->nullable();
             $table->timestamp('updated_at')->nullable();
         });
+
+        Schema::create('audit_logs', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('action', 100);
+            $table->string('entity_type', 80)->nullable();
+            $table->unsignedBigInteger('entity_id')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamp('created_at')->useCurrent();
+        });
     }
 
     private function createUser(array $overrides = []): int
@@ -143,5 +154,57 @@ class AuthenticationApiTest extends TestCase
             'password' => '',
         ])->assertUnprocessable()
             ->assertJsonValidationErrors(['email', 'password']);
+    }
+
+    public function test_password_change_updates_hash_audit_and_current_session_version(): void
+    {
+        $userId = $this->createUser();
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'laravel-student@example.test',
+            'password' => 'Correct-Test-Password-123!',
+        ])->assertOk();
+
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password' => 'Correct-Test-Password-123!',
+            'new_password' => 'New-Secure-Password-456!',
+        ])->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonStructure(['data' => ['csrf_token']]);
+
+        $user = DB::table('users')->where('id', $userId)->first();
+        $this->assertSame(2, (int) $user->session_version);
+        $this->assertTrue(Hash::check('New-Secure-Password-456!', $user->password_hash));
+        $this->assertSame(1, DB::table('audit_logs')->where('action', 'user.password_changed')->count());
+
+        $this->getJson('/api/v1/auth/me')->assertOk();
+        $this->postJson('/api/v1/auth/logout')->assertOk();
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'laravel-student@example.test',
+            'password' => 'Correct-Test-Password-123!',
+        ])->assertUnauthorized();
+    }
+
+    public function test_password_change_rejects_wrong_current_password_and_weak_new_password(): void
+    {
+        $userId = $this->createUser();
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'laravel-student@example.test',
+            'password' => 'Correct-Test-Password-123!',
+        ])->assertOk();
+
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password' => 'wrong-password',
+            'new_password' => 'Another-Secure-Password-456!',
+        ])->assertStatus(422)
+            ->assertJsonPath('message', 'Current password is incorrect.');
+
+        $this->postJson('/api/v1/auth/change-password', [
+            'current_password' => 'Correct-Test-Password-123!',
+            'new_password' => 'short',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['new_password']);
+
+        $this->assertSame(1, (int) DB::table('users')->where('id', $userId)->value('session_version'));
+        $this->assertSame(0, DB::table('audit_logs')->count());
     }
 }

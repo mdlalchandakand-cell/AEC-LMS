@@ -72,6 +72,9 @@ class GuardianController extends Controller
             ], 403);
         }
 
+        $request->merge([
+            'student_email' => trim((string) $request->input('student_email', '')),
+        ]);
         $validated = $request->validate([
             'student_email' => ['required', 'string', 'email', 'max:190'],
             'relationship' => ['sometimes', 'string', 'min:1', 'max:60'],

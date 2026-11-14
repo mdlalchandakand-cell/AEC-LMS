@@ -99,7 +99,7 @@ Teacher access is restricted to content/course ownership and active assignments;
 - `GET /api/v1/certificates/students` and `GET /api/v1/certificates` — authorized certificate staff can find eligible students and list issued certificates; branch managers are restricted to their branch.
 - `POST /api/v1/certificates` — issues one certificate per student/course only after an active/completed enrollment and course completion; student/course identity is snapshotted, the action is audited, and the student is notified.
 - `POST /api/v1/certificates/{id}/revoke` — revokes an issued certificate with a required reason and notifies the student.
-- Migration `030_certificate_branch_scope.sql` adds and backfills certificate branch ownership for safe branch-manager filtering. The original `014_certificates.sql` remains unchanged for applied-migration checksum safety.
+- Migration `031_certificate_branch_scope.sql` adds and backfills certificate branch ownership for safe branch-manager filtering. The original `014_certificates.sql` remains unchanged for applied-migration checksum safety.
 
 ## Laravel reusable MCQ question bank API
 

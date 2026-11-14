@@ -737,6 +737,125 @@ class PaymentApiTest extends TestCase
         $this->assertSame(0, DB::table('ledger_transactions')->where('payment_id', $paymentId)->count());
     }
 
+    public function test_admin_can_view_ledger_and_reconcile_balanced_entries(): void
+    {
+        $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'verified', 'AEC-LEDGER-001');
+        $transactionId = (int) DB::table('ledger_transactions')->insertGetId([
+            'payment_id' => $paymentId,
+            'refund_id' => null,
+            'reference' => 'PAY-LEDGER-0001',
+            'description' => 'Verified course fee',
+            'created_by' => 1,
+            'created_at' => now(),
+        ]);
+        $assetId = (int) DB::table('accounting_accounts')->where('account_code', 'ASSET_BKASH_NAGAD_CLEARING')->value('id');
+        $incomeId = (int) DB::table('accounting_accounts')->where('account_code', 'INCOME_TUITION')->value('id');
+        DB::table('ledger_entries')->insert([
+            [
+                'transaction_id' => $transactionId,
+                'account_id' => $assetId,
+                'debit' => '1250.00',
+                'credit' => '0.00',
+                'currency' => 'BDT',
+                'created_at' => now(),
+            ],
+            [
+                'transaction_id' => $transactionId,
+                'account_id' => $incomeId,
+                'debit' => '0.00',
+                'credit' => '1250.00',
+                'currency' => 'BDT',
+                'created_at' => now(),
+            ],
+        ]);
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->getJson('/api/v1/payments/ledger')
+            ->assertOk()
+            ->assertJsonPath('data.items.0.payment_id', $paymentId)
+            ->assertJsonPath('data.items.0.transaction_type', 'payment')
+            ->assertJsonPath('data.items.0.account_code', 'ASSET_BKASH_NAGAD_CLEARING');
+
+        $this->getJson('/api/v1/payments/reconcile')
+            ->assertOk()
+            ->assertJsonPath('data.balanced', true)
+            ->assertJsonCount(0, 'data.discrepancies');
+
+        DB::table('ledger_entries')->insert([
+            'transaction_id' => $transactionId,
+            'account_id' => $assetId,
+            'debit' => '10.00',
+            'credit' => '0.00',
+            'currency' => 'BDT',
+            'created_at' => now(),
+        ]);
+
+        $this->getJson('/api/v1/payments/reconcile')
+            ->assertOk()
+            ->assertJsonPath('data.balanced', false)
+            ->assertJsonCount(1, 'data.discrepancies');
+    }
+
+    public function test_branch_manager_ledger_is_limited_to_assigned_branch(): void
+    {
+        $managerId = $this->createUser('manager@example.test', 'branch_manager', 10);
+        $studentId = $this->createUser('student@example.test', 'student', 20);
+        $courseId = DB::table('courses')->insertGetId([
+            'branch_id' => 20,
+            'title' => 'Branch 20 Course',
+            'slug' => 'branch-20-course',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, 20, 'verified', 'AEC-LEDGER-BR-001');
+        $transactionId = (int) DB::table('ledger_transactions')->insertGetId([
+            'payment_id' => $paymentId,
+            'refund_id' => null,
+            'reference' => 'PAY-LEDGER-BR-0001',
+            'description' => 'Branch payment',
+            'created_by' => $managerId,
+            'created_at' => now(),
+        ]);
+        $assetId = (int) DB::table('accounting_accounts')->where('account_code', 'ASSET_BKASH_NAGAD_CLEARING')->value('id');
+        $incomeId = (int) DB::table('accounting_accounts')->where('account_code', 'INCOME_TUITION')->value('id');
+        DB::table('ledger_entries')->insert([
+            ['transaction_id' => $transactionId, 'account_id' => $assetId, 'debit' => '1250.00', 'credit' => '0.00', 'currency' => 'BDT', 'created_at' => now()],
+            ['transaction_id' => $transactionId, 'account_id' => $incomeId, 'debit' => '0.00', 'credit' => '1250.00', 'currency' => 'BDT', 'created_at' => now()],
+        ]);
+        DB::table('role_permissions')->insert([
+            'role' => 'branch_manager',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('manager@example.test');
+
+        $this->getJson('/api/v1/payments/ledger')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.items');
+
+        $this->getJson('/api/v1/payments/reconcile')
+            ->assertOk()
+            ->assertJsonPath('data.balanced', true)
+            ->assertJsonCount(0, 'data.discrepancies');
+    }
+
     public function test_users_without_payment_management_permission_are_forbidden(): void
     {
         $this->createUser('student@example.test', 'student');

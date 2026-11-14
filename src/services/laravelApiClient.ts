@@ -105,7 +105,7 @@ class LaravelApiService {
     list: () => this.request<{ items: unknown[] }>('/api/v1/exams'),
     getById: (id: number) => this.request<Record<string, unknown>>('/api/v1/exams/' + id),
     attempts: (examId?: number) => this.request<{ items: unknown[] }>('/api/v1/exams/attempts' + (examId ? '?exam_id=' + encodeURIComponent(String(examId)) : '')),
-    start: (id: number) => this.request('/api/v1/exams/' + id + '/start', { method: 'POST' }),
+    start: (id: number) => this.request<{ attempt: Record<string, unknown>; exam: Record<string, unknown> }>('/api/v1/exams/' + id + '/start', { method: 'POST' }),
     saveAnswers: (attemptId: number, answers: Record<string, number>) => this.request('/api/v1/exams/attempts/' + attemptId + '/answers', { method: 'POST', body: JSON.stringify({ answers }) }),
     submit: (attemptId: number, answers: Record<string, number>) => this.request('/api/v1/exams/attempts/' + attemptId + '/submit', { method: 'POST', body: JSON.stringify({ answers }) }),
     create: (payload: Record<string, unknown>) => this.request<{ id: number }>('/api/v1/exams', { method: 'POST', body: JSON.stringify(payload) }),

@@ -92,6 +92,18 @@ Teacher course ownership is checked server-side; changing an ID in the request c
 
 Teacher access is restricted to content/course ownership and active assignments; branch managers cannot modify content shared across other branches. Media links must use HTTPS.
 
+## Laravel timed MCQ examination API
+
+- `GET /api/v1/exams` and `GET /api/v1/exams/{id}` — authorized managers see permitted drafts; students see only published exams within their availability window and only when enrolled in the linked published course. Correct answers and explanations are hidden from students before submission.
+- `POST /api/v1/exams`, `PATCH /api/v1/exams/{id}`, and `PUT /api/v1/exams/{id}/questions` — create and configure timed exams, save up to 200 MCQ questions with 2–8 options each, and publish only after questions and total marks are valid. Teacher access is restricted to owned/assigned courses.
+- `POST /api/v1/exams/{id}/start` — starts or resumes a timed attempt, enforces the configured maximum attempts, and returns only question text/options/marks.
+- `POST /api/v1/exams/attempts/{id}/answers` and `POST /api/v1/exams/attempts/{id}/submit` — autosave and server-grade the student's answers, including negative marking, score, percentage, pass status and answer review. An attempt can only be changed by its owner and before expiry.
+- `GET /api/v1/exams/attempts` — students see their own attempts; exam managers and teachers see only permitted scope, with branch managers restricted to their branch.
+- `DELETE /api/v1/exams/{id}` — archives an exam without attempts and records it in the recycle bin. Exams with existing attempts are retained and cannot be archived.
+- Exam restore is available through `POST /api/v1/recycle-bin/{id}/restore`. Permanent deletion remains blocked while linked question/attempt records exist.
+
+The existing React exam screens and legacy `/api/exams.php` workflow are not redirected yet. Frontend/API contract parity and the reusable question-bank API must pass their own tests before the legacy exam routes are retired.
+
 ## Laravel recycle-bin API
 
 - `GET /api/v1/recycle-bin` — lists active recycle-bin items; branch managers see only items tagged to their active branch.

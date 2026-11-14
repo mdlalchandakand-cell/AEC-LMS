@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\CourseProgressController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\LiveClassController;
+use App\Http\Controllers\Api\V1\TeacherCommissionController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use Illuminate\Support\Facades\Route;
 
@@ -37,6 +38,20 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::prefix('api/v1/teacher-commissions')
+    ->name('api.v1.teacher-commissions.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/summary', [TeacherCommissionController::class, 'summary'])->name('summary');
+        Route::get('/assignments', [TeacherCommissionController::class, 'assignments'])->name('assignments');
+        Route::post('/assignments', [TeacherCommissionController::class, 'assign'])->name('assignments.store');
+        Route::post('/assignments/{assignment}/unassign', [TeacherCommissionController::class, 'unassign'])->whereNumber('assignment')->name('assignments.unassign');
+        Route::get('/payouts', [TeacherCommissionController::class, 'payouts'])->name('payouts');
+        Route::post('/payouts', [TeacherCommissionController::class, 'requestPayout'])->name('payouts.store');
+        Route::post('/payouts/{payout}/review', [TeacherCommissionController::class, 'reviewPayout'])->whereNumber('payout')->name('payouts.review');
+        Route::post('/payouts/{payout}/mark-paid', [TeacherCommissionController::class, 'markPaid'])->whereNumber('payout')->name('payouts.mark-paid');
     });
 
 Route::prefix('api/v1/guardians')

@@ -62,6 +62,7 @@ class CertificateApiTest extends TestCase
             $table->unsignedBigInteger('branch_id')->nullable();
             $table->string('status', 20);
             $table->dateTime('completed_at')->nullable();
+            $table->dateTime('ends_at')->nullable();
         });
 
         Schema::create('content_items', function (Blueprint $table): void {
@@ -83,6 +84,24 @@ class CertificateApiTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->boolean('is_completed')->default(false);
             $table->dateTime('updated_at')->nullable();
+        });
+
+        Schema::create('user_subscriptions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('status', 20);
+            $table->dateTime('starts_at')->nullable();
+            $table->dateTime('ends_at')->nullable();
+        });
+
+        Schema::create('user_subscription_courses', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('subscription_id');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('status', 20);
+            $table->dateTime('selected_at')->nullable();
         });
 
         Schema::create('certificates', function (Blueprint $table): void {
@@ -322,4 +341,56 @@ class CertificateApiTest extends TestCase
             ->assertJsonPath('data.items.0.status', 'revoked')
             ->assertJsonMissing(['student_user_id' => $otherStudent]);
     }
+    public function test_completed_subscription_course_can_receive_certificate(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'super_admin', null);
+        $studentId = $this->createUser('student@example.test', 'student', 10);
+        $courseId = $this->createCourse(10);
+        $subscriptionId = (int) DB::table('user_subscriptions')->insertGetId([
+            'user_id' => $studentId,
+            'status' => 'active',
+            'starts_at' => now()->subMinute(),
+            'ends_at' => now()->addDays(20),
+        ]);
+        DB::table('user_subscription_courses')->insert([
+            'subscription_id' => $subscriptionId,
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'branch_id' => 10,
+            'status' => 'active',
+            'selected_at' => now(),
+        ]);
+        $contentId = (int) DB::table('content_items')->insertGetId([
+            'status' => 'published',
+            'deleted_at' => null,
+        ]);
+        DB::table('course_content')->insert([
+            'course_id' => $courseId,
+            'content_item_id' => $contentId,
+        ]);
+        DB::table('course_lesson_progress')->insert([
+            'course_id' => $courseId,
+            'content_item_id' => $contentId,
+            'user_id' => $studentId,
+            'is_completed' => 1,
+            'updated_at' => now(),
+        ]);
+        $this->login('admin@example.test');
+
+        $response = $this->postJson('/api/v1/certificates', [
+            'student_user_id' => $studentId,
+            'course_id' => $courseId,
+            'grade' => 'Completed',
+        ])->assertCreated();
+
+        $certificateId = (int) $response->json('data.id');
+        $this->assertDatabaseHas('certificates', [
+            'id' => $certificateId,
+            'student_user_id' => $studentId,
+            'course_id' => $courseId,
+            'branch_id' => 10,
+            'status' => 'issued',
+        ]);
+    }
+
 }

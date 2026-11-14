@@ -39,7 +39,9 @@ export const PaymentApiPanel:React.FC=()=>{
   const paymentRows=isLaravelApiEnabled?(p.data as {items?:unknown[]}|undefined)?.items:p.data;
   if(p.success&&Array.isArray(paymentRows))setPayments(paymentRows as Payment[]);else setError(p.error||'Could not load payment records. Financial access is restricted to authorized staff.');
   if(isStudent){
-   const c=await apiClient.courses.getAll();if(c.success&&Array.isArray(c.data))setCourses(c.data as Course[]);
+   const c=isLaravelApiEnabled?await laravelApiClient.catalog.courses('',50):await apiClient.courses.getAll();
+   const courseRows=isLaravelApiEnabled?(c.data as {items?:unknown[]}|undefined)?.items:c.data;
+   if(c.success&&Array.isArray(courseRows))setCourses(courseRows as Course[]);
    setLedger([]);setReconciliation(null);
   } else if(p.success){
    const [l,r]=await Promise.all([

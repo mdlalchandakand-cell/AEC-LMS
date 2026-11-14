@@ -170,6 +170,15 @@ class SubscriptionController extends Controller
             ->where('subscriptions.status', 'active')
             ->whereNull('courses.deleted_at')
             ->where('courses.status', 'published')
+            ->where(function ($branch): void {
+                $branch->whereNull('selected.branch_id')
+                    ->orWhereExists(function ($active): void {
+                        $active->selectRaw('1')
+                            ->from('branches')
+                            ->whereColumn('branches.id', 'selected.branch_id')
+                            ->where('branches.is_active', 1);
+                    });
+            })
             ->where(function ($starts): void {
                 $starts->whereNull('subscriptions.starts_at')
                     ->orWhere('subscriptions.starts_at', '<=', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
@@ -222,6 +231,9 @@ class SubscriptionController extends Controller
                 ->first(['id', 'branch_id', 'title']);
             if (!$course) {
                 return response()->json(['success' => false, 'message' => 'Published course not found.', 'error' => 'Not found.'], 404);
+            }
+            if ($course->branch_id !== null && !$this->hasActiveBranch($course->branch_id)) {
+                return response()->json(['success' => false, 'message' => 'Course branch is inactive.', 'error' => 'Conflict.'], 409);
             }
             if ($student->branch_id !== null && $course->branch_id !== null
                 && (int) $student->branch_id !== (int) $course->branch_id) {

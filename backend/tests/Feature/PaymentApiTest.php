@@ -242,6 +242,32 @@ class PaymentApiTest extends TestCase
         ]);
     }
 
+    public function test_payment_submission_rejects_non_scalar_amount_input(): void
+    {
+        $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1000.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('student@example.test');
+
+        $this->postJson('/api/v1/payments', [
+            'course_id' => $courseId,
+            'amount' => ['100.00'],
+            'method' => 'bKash',
+            'trx_id' => 'AEC-ARRAY-001',
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('course_payments', [
+            'trx_id' => 'AEC-ARRAY-001',
+        ]);
+    }
+
     public function test_non_student_cannot_submit_a_course_payment(): void
     {
         $this->createUser('admin@example.test', 'admin');

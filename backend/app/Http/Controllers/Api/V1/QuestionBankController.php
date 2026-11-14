@@ -186,7 +186,13 @@ class QuestionBankController extends Controller
                 return response()->json(['success' => false, 'message' => 'One or more published question bank items were not found.', 'error' => 'Not found.'], 404);
             }
 
-            $sortOrder = (int) DB::table('exam_questions')->where('exam_id', $exam->id)->max('sort_order') + 1;
+            $existingQuestionCount = DB::table('exam_questions')->where('exam_id', $exam->id)->count();
+            if ($existingQuestionCount + count($ids) > 200) {
+                return response()->json(['success' => false, 'message' => 'An exam cannot contain more than 200 questions.', 'error' => 'Validation failed.'], 422);
+            }
+            $sortOrder = $existingQuestionCount > 0
+                ? (int) DB::table('exam_questions')->where('exam_id', $exam->id)->max('sort_order') + 1
+                : 0;
             $totalMarks = (float) $exam->total_marks;
             foreach ($ids as $id) {
                 $question = $questions->get($id);

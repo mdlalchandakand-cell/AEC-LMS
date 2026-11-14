@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CourseProgressController;
 use App\Http\Controllers\Api\V1\ContentManagementController;
 use App\Http\Controllers\Api\V1\CourseManagementController;
+use App\Http\Controllers\Api\V1\CertificateController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
 use App\Http\Controllers\Api\V1\ExamController;
@@ -43,6 +44,21 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::get('/api/v1/certificates/verify/{number}', [CertificateController::class, 'verify'])
+    ->where('number', '[A-Za-z0-9-]+')
+    ->name('api.v1.certificates.verify');
+
+Route::prefix('api/v1/certificates')
+    ->name('api.v1.certificates.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [CertificateController::class, 'index'])->name('index');
+        Route::get('/my', [CertificateController::class, 'my'])->name('my');
+        Route::get('/students', [CertificateController::class, 'students'])->name('students');
+        Route::post('/', [CertificateController::class, 'issue'])->name('issue');
+        Route::post('/{certificate}/revoke', [CertificateController::class, 'revoke'])->whereNumber('certificate')->name('revoke');
     });
 
 Route::prefix('api/v1/content-management')

@@ -34,21 +34,56 @@ class LiveClassController extends Controller
                 'live.timezone',
                 'live.meeting_platform',
                 'live.meeting_url',
+                'live.participant_limit',
                 'live.recording_url',
                 'live.status',
             ]);
 
         if ($actor->role === 'student') {
-            $query->join('course_enrollments as enrollments', function ($join) use ($actor): void {
-                $join->on('enrollments.course_id', '=', 'live.course_id')
-                    ->where('enrollments.user_id', '=', $actor->id)
-                    ->whereIn('enrollments.status', ['active', 'completed'])
-                    ->where(function ($branch): void {
-                        $branch->whereColumn('enrollments.branch_id', 'live.branch_id')
-                            ->orWhereNull('live.branch_id');
+            $now = now('Asia/Dhaka')->format('Y-m-d H:i:s');
+            $query->where('live.status', '<>', 'cancelled')
+                ->where(function ($access) use ($actor, $now): void {
+                    $access->whereExists(function ($enrollment) use ($actor): void {
+                        $enrollment->selectRaw('1')
+                            ->from('course_enrollments as enrollments')
+                            ->whereColumn('enrollments.course_id', 'live.course_id')
+                            ->where('enrollments.user_id', $actor->id)
+                            ->whereIn('enrollments.status', ['active', 'completed'])
+                            ->where(function ($branch): void {
+                                $branch->whereColumn('enrollments.branch_id', 'live.branch_id')
+                                    ->orWhereNull('live.branch_id');
+                            });
+                    })->orWhereExists(function ($subscription) use ($actor, $now): void {
+                        $subscription->selectRaw('1')
+                            ->from('user_subscription_courses as selected')
+                            ->join('user_subscriptions', 'user_subscriptions.id', '=', 'selected.subscription_id')
+                            ->whereColumn('selected.course_id', 'live.course_id')
+                            ->where('selected.user_id', $actor->id)
+                            ->where('selected.status', 'active')
+                            ->where('user_subscriptions.status', 'active')
+                            ->where(function ($branch): void {
+                                $branch->whereColumn('selected.branch_id', 'live.branch_id')
+                                    ->orWhereNull('live.branch_id');
+                            })
+                            ->where(function ($active): void {
+                                $active->whereNull('selected.branch_id')
+                                    ->orWhereExists(function ($exists): void {
+                                        $exists->selectRaw('1')
+                                            ->from('branches as active_subscription_branch')
+                                            ->whereColumn('active_subscription_branch.id', 'selected.branch_id')
+                                            ->where('active_subscription_branch.is_active', 1);
+                                    });
+                            })
+                            ->where(function ($starts) use ($now): void {
+                                $starts->whereNull('user_subscriptions.starts_at')
+                                    ->orWhere('user_subscriptions.starts_at', '<=', $now);
+                            })
+                            ->where(function ($ends) use ($now): void {
+                                $ends->whereNull('user_subscriptions.ends_at')
+                                    ->orWhere('user_subscriptions.ends_at', '>', $now);
+                            });
                     });
-            })
-                ->where('live.status', '<>', 'cancelled')
+                })
                 ->where(function ($branch): void {
                     $branch->whereNull('live.branch_id')
                         ->orWhere(function ($active): void {
@@ -109,7 +144,8 @@ class LiveClassController extends Controller
             'title' => ['required', 'string', 'max:180'],
             'date' => ['required', 'date_format:Y-m-d'],
             'time' => ['required', 'date_format:H:i'],
-            'meeting_platform' => ['required', 'in:google_meet,zoom,teams'],
+            'meeting_platform' => ['required', 'in:google_meet,zoom,teams,youtube_unlisted'],
+            'participant_limit' => ['sometimes', 'integer', 'min:300', 'max:5000'],
             'meeting_url' => ['required', 'string', 'max:2048'],
         ]);
 
@@ -208,6 +244,7 @@ class LiveClassController extends Controller
                 'timezone' => 'Asia/Dhaka',
                 'meeting_platform' => $validated['meeting_platform'],
                 'meeting_url' => $meetingUrl,
+                'participant_limit' => (int) ($validated['participant_limit'] ?? 300),
                 'status' => 'upcoming',
                 'created_by' => (int) $actor->id,
                 'created_at' => now(),

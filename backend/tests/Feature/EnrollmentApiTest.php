@@ -273,6 +273,63 @@ class EnrollmentApiTest extends TestCase
         ]);
     }
 
+    public function test_duplicate_enrollment_creation_returns_conflict_without_duplicate_rows(): void
+    {
+        $this->createUser('admin@example.test', 'admin', 'LMS Admin');
+        $studentId = $this->createUser('student@example.test', 'student', 'Student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'Published Course',
+            'slug' => 'published-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('admin@example.test');
+        $payload = ['user_id' => $studentId, 'course_id' => $courseId];
+
+        $this->postJson('/api/v1/enrollments', $payload)->assertCreated();
+        $this->postJson('/api/v1/enrollments', $payload)->assertStatus(409);
+
+        $this->assertSame(1, DB::table('course_enrollments')
+            ->where('user_id', $studentId)
+            ->where('course_id', $courseId)
+            ->count());
+    }
+
+    public function test_enrollment_update_rejects_end_date_before_existing_start_date(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin', 'LMS Admin');
+        $studentId = $this->createUser('student@example.test', 'student', 'Student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'Published Course',
+            'slug' => 'published-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $enrollmentId = (int) DB::table('course_enrollments')->insertGetId([
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'active',
+            'enrolled_by' => $adminId,
+            'starts_at' => '2026-11-10 09:00:00',
+            'enrolled_at' => now(),
+            'created_at' => now(),
+        ]);
+
+        $this->login('admin@example.test');
+
+        $this->patchJson('/api/v1/enrollments/' . $enrollmentId, [
+            'ends_at' => '2026-11-01 09:00:00',
+        ])->assertStatus(422);
+
+        $this->assertDatabaseHas('course_enrollments', [
+            'id' => $enrollmentId,
+            'ends_at' => null,
+        ]);
+    }
+
     public function test_branch_manager_cannot_create_enrollment_outside_their_branch(): void
     {
         DB::table('branches')->insert([

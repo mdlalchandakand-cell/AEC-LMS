@@ -37,6 +37,7 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 - `POST /api/v1/auth/login` — authenticates an existing LMS user by email and `password_hash`.
 - `GET /api/v1/auth/me` — returns the signed-in user's safe profile and current CSRF token.
 - `POST /api/v1/auth/logout` — invalidates the Laravel session.
+- `POST /api/v1/auth/change-password` — verifies the current password, stores a new hash, increments `session_version`, rotates the current session and writes an audit log.
 
 ## Laravel enrollment read API
 

@@ -42,9 +42,16 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 ## Laravel enrollment read API
 
 - `GET /api/v1/enrollments/my` — returns only the signed-in student's own enrollments and hides enrollments whose course has been soft-deleted.
-- `GET /api/v1/enrollments` — administrator-only enrollment list with optional status filter and pagination.
+- `GET /api/v1/enrollments` — permission-checked enrollment list with optional status filter and pagination; branch managers are restricted to their own active branch.
 
 These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. Enrollment creation, activation, payment verification and branch-scoped management remain on the legacy API until their write rules and parity tests are migrated.
+
+## Laravel payment history and review list API
+
+- `GET /api/v1/payments/my` — returns only the signed-in student's payment history and completed refund totals.
+- `GET /api/v1/payments` — requires the `payments.manage` permission; branch managers must be assigned to an active branch and see only that branch's payments.
+
+Amounts and refund totals are serialized consistently as two-decimal BDT-style values. Payment submission, gateway callbacks, manual verification, rejection and refund creation remain on the legacy API until their write workflows and gateway-specific tests are migrated.
 
 Authentication uses a separate `aec_laravel_session` cookie and does not reuse or overwrite the legacy `AEC_LMS_SESSION` cookie. Disabled accounts are rejected, login attempts are limited per email/IP, and a changed `session_version` invalidates an existing Laravel session. Role, branch, active-status and session-version fields are not mass assignable.
 
@@ -59,4 +66,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The first Laravel milestone establishes the framework runtime and health tests only. It is not a claim that the legacy PHP modules have already been migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, read-only enrollment and payment-history endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

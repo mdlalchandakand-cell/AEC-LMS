@@ -109,13 +109,30 @@ class PaymentController extends Controller
             ->selectRaw('COALESCE(refunds.refunded_amount, 0) AS refunded_amount');
     }
 
+    private function decimalAmount(mixed $value): string
+    {
+        $amount = trim((string) $value);
+        if (!preg_match('/^(\\d+)(?:\\.(\\d+))?$/', $amount, $matches)) {
+            return '0.00';
+        }
+
+        return $matches[1] . '.' . str_pad(substr($matches[2] ?? '', 0, 2), 2, '0');
+    }
+
     private function response($paginator, string $message): JsonResponse
     {
+        $items = collect($paginator->items())->map(function ($item): object {
+            $item->amount = $this->decimalAmount($item->amount);
+            $item->refunded_amount = $this->decimalAmount($item->refunded_amount);
+
+            return $item;
+        })->values();
+
         return response()->json([
             'success' => true,
             'message' => $message,
             'data' => [
-                'items' => $paginator->items(),
+                'items' => $items,
                 'pagination' => [
                     'current_page' => $paginator->currentPage(),
                     'last_page' => $paginator->lastPage(),

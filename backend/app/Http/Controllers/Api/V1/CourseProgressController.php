@@ -156,9 +156,15 @@ class CourseProgressController extends Controller
         $course = DB::table('courses')
             ->where('id', $courseId)
             ->whereNull('deleted_at')
-            ->first(['id', 'status']);
+            ->first(['id', 'status', 'branch_id']);
 
         if (!$course) {
+            return false;
+        }
+        if ($course->branch_id !== null && !DB::table('branches')
+            ->where('id', $course->branch_id)
+            ->where('is_active', 1)
+            ->exists()) {
             return false;
         }
 

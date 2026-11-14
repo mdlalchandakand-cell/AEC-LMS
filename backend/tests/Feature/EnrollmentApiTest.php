@@ -54,6 +54,7 @@ class EnrollmentApiTest extends TestCase
             $table->string('notes', 1000)->nullable();
             $table->dateTime('created_at')->useCurrent();
             $table->dateTime('updated_at')->nullable();
+            $table->unique(['user_id', 'course_id']);
         });
     }
 
@@ -128,9 +129,17 @@ class EnrollmentApiTest extends TestCase
             'updated_at' => now(),
         ]);
 
+        $pendingCourseId = DB::table('courses')->insertGetId([
+            'title' => 'Pending Course',
+            'slug' => 'pending-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         DB::table('course_enrollments')->insert([
             ['user_id' => $studentId, 'course_id' => $courseId, 'status' => 'active', 'enrolled_by' => $adminId, 'notes' => 'Approved', 'enrolled_at' => now(), 'created_at' => now()],
-            ['user_id' => $studentId, 'course_id' => $courseId, 'status' => 'pending', 'enrolled_by' => $adminId, 'notes' => 'Pending review', 'enrolled_at' => now(), 'created_at' => now()],
+            ['user_id' => $studentId, 'course_id' => $pendingCourseId, 'status' => 'pending', 'enrolled_by' => $adminId, 'notes' => 'Pending review', 'enrolled_at' => now(), 'created_at' => now()],
         ]);
 
         $this->login('admin@example.test');

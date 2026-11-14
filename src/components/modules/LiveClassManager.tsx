@@ -70,15 +70,26 @@ export const LiveClassManager: React.FC = () => {
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('');
-    const payload = {
-      course_id: Number(courseId), title: title.trim(), date, time,
-      meeting_platform: platform, meeting_url: meetingUrl.trim(),
-      ...(isLaravelApiEnabled ? { participant_limit: participantLimit } : {}),
-      ...(isAdmin ? { instructor_id: Number(instructorId) } : {}),
-    };
     const result = isLaravelApiEnabled
-      ? await laravelApiClient.liveClasses.create(payload)
-      : await apiClient.liveClasses.create(payload);
+      ? await laravelApiClient.liveClasses.create({
+          course_id: Number(courseId),
+          title: title.trim(),
+          date,
+          time,
+          meeting_platform: platform,
+          meeting_url: meetingUrl.trim(),
+          participant_limit: participantLimit,
+          ...(isAdmin ? { instructor_id: Number(instructorId) } : {}),
+        })
+      : await apiClient.liveClasses.create({
+          course_id: Number(courseId),
+          title: title.trim(),
+          date,
+          time,
+          meeting_platform: platform === 'youtube_unlisted' ? 'google_meet' : platform,
+          meeting_url: meetingUrl.trim(),
+          ...(isAdmin ? { instructor_id: Number(instructorId) } : {}),
+        });
     setSaving(false);
     if (!result.success) { setError(result.error || 'Could not schedule the live class.'); return; }
     setNotice('Live class saved to the database.');

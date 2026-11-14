@@ -947,7 +947,7 @@ try {
     check(in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatches['data'] ?? []), true), 'Student could not see their assigned batch.');
     $studentRoutines = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student views own batch routine');
     check(count(array_filter($studentRoutines['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Student could not see their assigned routine.');
-    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes a batch');
     $studentBatchesAfterDelete = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student batch list hides deleted batches');
     check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterDelete['data'] ?? []), true), 'Deleted batch remained visible to students.');
     $recycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Administrator lists recycle-bin records');
@@ -956,11 +956,11 @@ try {
     $batchRecycleItemId = (int)$batchRecycleRows[0]['id'];
     $branchRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager lists only their recycle-bin items');
     check(count(array_filter($branchRecycleItems['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $batchRecycleItemId)) === 1, 'Branch manager could not see the batch from their own branch.');
-    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Administrator cannot permanently delete before the retention period');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Administrator cannot permanently delete before the retention period');
     expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $branchManagerCookie, $branchManagerCsrf), 403, 'Branch manager cannot purge recycle-bin records');
     $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?')->execute([$batchRecycleItemId]);
     expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 409, 'Expired recycle-bin item cannot be restored');
-    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Batch with enrollment/routine history is retained after expiry');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Batch with enrollment/routine history is retained after expiry');
     $blockedRecycleItem = $db->prepare('SELECT purge_error FROM recycle_bin_items WHERE id = ?');
     $blockedRecycleItem->execute([$batchRecycleItemId]);
     check((string)$blockedRecycleItem->fetchColumn() !== '', 'Blocked permanent deletion did not record the dependency reason.');
@@ -968,8 +968,8 @@ try {
     expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 200, 'Branch manager restores an item from the assigned branch');
     $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
     check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
-    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch again for direct-restore reconciliation');
-    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Direct batch restore endpoint succeeds');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes a batch again for direct-restore reconciliation');
+    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Direct batch restore endpoint succeeds');
     $activeBatchRecycle = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle-bin list refreshes after direct batch restore');
     check(count(array_filter($activeBatchRecycle['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId)) === 0, 'Direct batch restore did not reconcile its recycle-bin record.');
     $batchUpdateBase = [
@@ -978,14 +978,14 @@ try {
         'room_number' => 'Test Room 1', 'instructor_user_id' => $teacherId, 'max_capacity' => 1,
         'start_date' => '2026-11-15', 'end_date' => '2027-03-01',
     ];
-    expect_status(api_request($base, '/api/batches.php?action=update&id=' . $batchId, 'POST', $batchUpdateBase + ['status' => 'cancelled'], $cookie, $csrf), 200, 'Admin cancels a batch');
+    expect_status(api_request($base, '/api/batches.php?action=update&id=' . $batchId, 'POST', $batchUpdateBase + ['status' => 'cancelled'], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin cancels a batch');
     $studentBatchesAfterCancel = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Cancelled batch is hidden from students');
     check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterCancel['data'] ?? []), true), 'Student retained access to a cancelled batch.');
     $studentRoutinesAfterCancel = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Cancelled batch routines are hidden from students');
     check(count(array_filter($studentRoutinesAfterCancel['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 0, 'Student retained access to a cancelled batch routine.');
     expect_status(api_request($base, '/api/batches.php?action=eligible_students&batch_id=' . $batchId, 'GET', null, $cookie), 409, 'Cancelled batch cannot accept new students');
-    expect_status(api_request($base, '/api/batches.php?action=enroll&id=' . $batchId, 'POST', ['student_user_id' => $studentId], $cookie, $csrf), 409, 'Cancelled batch rejects student placement');
-    expect_status(api_request($base, '/api/batches.php?action=update&id=' . $batchId, 'POST', $batchUpdateBase + ['status' => 'upcoming'], $cookie, $csrf), 200, 'Admin reopens the batch after cancellation');
+    expect_status(api_request($base, '/api/batches.php?action=enroll&id=' . $batchId, 'POST', ['student_user_id' => $studentId], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Cancelled batch rejects student placement');
+    expect_status(api_request($base, '/api/batches.php?action=update&id=' . $batchId, 'POST', $batchUpdateBase + ['status' => 'upcoming'], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin reopens the batch after cancellation');
 
 
 
@@ -1031,12 +1031,12 @@ try {
     check((float)($paidCommissionSummary['data']['totals']['paid_commission'] ?? 0) === 500.0
         && (float)($paidCommissionSummary['data']['totals']['available_balance'] ?? 0) === 100.0,
         'Paid payout was not reflected in commission totals.');
-    expect_status(api_request($base, '/api/teacher_commissions.php?action=unassign&id=' . $commissionAssignmentId, 'POST', [], $cookie, $csrf), 200, 'Admin ends teacher course assignment');
+    expect_status(api_request($base, '/api/teacher_commissions.php?action=unassign&id=' . $commissionAssignmentId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin ends teacher course assignment');
     $historicalCommissionSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin reads historical commission after unassignment');
     check((float)($historicalCommissionSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Unassigning a teacher erased commission earned while the assignment was active.');
     expect_status(api_request($base, '/api/teacher_commissions.php?action=assign', 'POST', [
         'course_id' => $courseIds[0], 'teacher_user_id' => $teacherId, 'commission_percentage' => 40,
-    ], $cookie, $csrf), 200, 'Admin reassigns the teacher with a new commission period');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin reassigns the teacher with a new commission period');
     $reassignedSummary = expect_status(api_request($base, '/api/teacher_commissions.php?action=summary&teacher_id=' . $teacherId, 'GET', null, $cookie), 200, 'Admin verifies re-assignment preserves earlier earnings');
     check((float)($reassignedSummary['data']['totals']['gross_commission'] ?? 0) === 600.0, 'Reassigning a teacher overwrote the previous commission period.');
     $teacherAfterReassignCookie = null;
@@ -1056,14 +1056,14 @@ try {
     check(in_array($paymentId, array_map(static fn(array $row): int => (int)$row['id'], $branchPayments['data'] ?? []), true), 'Branch manager could not see the payment belonging to its branch.');
     $branchEnrollments = expect_status(api_request($base, '/api/enrollments.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager reloads branch enrollment list');
     check(count(array_filter($branchEnrollments['data'] ?? [], static fn(array $row): bool => (int)$row['user_id'] === $studentId && (int)$row['course_id'] === $courseIds[0])) === 1, 'Branch manager could not see the enrollment belonging to its branch.');
-    expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $draftCourseId, 'POST', [], $cookie, $csrf), 200, 'Admin archives a course through the API');
+    expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $draftCourseId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin archives a course through the API');
     $afterArchive = expect_status(api_request($base, '/api/courses.php?action=list', 'GET', null, $cookie), 200, 'Admin course list after archival');
     check(!in_array($draftCourseId, array_map(static fn(array $course): int => (int)$course['id'], $afterArchive['data'] ?? []), true), 'Archived course remained in the active course list.');
-    expect_status(api_request($base, '/api/courses.php?action=restore&id=' . $draftCourseId, 'POST', [], $cookie, $csrf), 200, 'Admin restores archived course');
+    expect_status(api_request($base, '/api/courses.php?action=restore&id=' . $draftCourseId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin restores archived course');
     $afterRestore = expect_status(api_request($base, '/api/courses.php?action=list', 'GET', null, $cookie), 200, 'Admin course list after restoration');
     check(in_array($draftCourseId, array_map(static fn(array $course): int => (int)$course['id'], $afterRestore['data'] ?? []), true), 'Restored course was not returned to the active course list.');
-    expect_status(api_request($base, '/api/payments.php?action=verify&id=' . $paymentId, 'POST', [], $cookie, $csrf), 409, 'Payment cannot be verified twice');
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Admin logout after payment review');
+    expect_status(api_request($base, '/api/payments.php?action=verify&id=' . $paymentId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Payment cannot be verified twice');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin logout after payment review');
     $cookie = null;
     $studentLoginAfterPayment = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $studentEmail, 'password' => $studentPassword], $cookie), 200, 'Student re-login after payment verification');
     $csrf = $studentLoginAfterPayment['data']['csrf_token'] ?? null;
@@ -1076,8 +1076,8 @@ try {
     expect_status(api_request($base, '/api/attendance.php?action=save', 'POST', [
         'course_id' => $courseIds[0], 'attendance_date' => $attendanceDate,
         'records' => [['user_id' => $studentId, 'status' => 'present']],
-    ], $cookie, $csrf), 403, 'Student cannot mark attendance');
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Student logout before admin attendance entry');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 403, 'Student cannot mark attendance');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student logout before admin attendance entry');
     $cookie = null;
     $adminAttendanceLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $adminEmail, 'password' => $adminPassword], $cookie), 200, 'Admin login for attendance register');
     $csrf = $adminAttendanceLogin['data']['csrf_token'] ?? null;
@@ -1086,19 +1086,19 @@ try {
     expect_status(api_request($base, '/api/attendance.php?action=save', 'POST', [
         'course_id' => $courseIds[0], 'attendance_date' => $attendanceDate,
         'records' => [['user_id' => $studentId, 'status' => 'holiday']],
-    ], $cookie, $csrf), 422, 'Attendance API rejects unknown status values');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 422, 'Attendance API rejects unknown status values');
     expect_status(api_request($base, '/api/attendance.php?action=save', 'POST', [
         'course_id' => $courseIds[0], 'attendance_date' => '2026-02-30',
         'records' => [['user_id' => $studentId, 'status' => 'present']],
-    ], $cookie, $csrf), 422, 'Attendance API rejects invalid calendar dates');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 422, 'Attendance API rejects invalid calendar dates');
     expect_status(api_request($base, '/api/attendance.php?action=save', 'POST', [
         'course_id' => $courseIds[0], 'attendance_date' => $attendanceDate,
         'records' => [['user_id' => $studentId, 'status' => 'present', 'remarks' => 'Present at roll call']],
-    ], $cookie, $csrf), 200, 'Admin records student attendance');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin records student attendance');
     expect_status(api_request($base, '/api/attendance.php?action=save', 'POST', [
         'course_id' => $courseIds[0], 'attendance_date' => $attendanceDate,
         'records' => [['user_id' => $studentId, 'status' => 'late', 'remarks' => 'Arrived ten minutes late']],
-    ], $cookie, $csrf), 200, 'Admin updates same-day attendance without creating a duplicate');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin updates same-day attendance without creating a duplicate');
     $attendanceRosterAfter = expect_status(api_request($base, '/api/attendance.php?action=roster&course_id=' . $courseIds[0] . '&date=' . $attendanceDate, 'GET', null, $cookie), 200, 'Admin reloads saved attendance roster');
     check(($attendanceRosterAfter['data'][0]['status'] ?? '') === 'late', 'Attendance upsert did not update the existing status.');
     $branchAttendance = expect_status(api_request($base, '/api/attendance.php?action=list&date=' . $attendanceDate, 'GET', null, $branchManagerCookie), 200, 'Branch manager reloads branch attendance records');
@@ -1108,7 +1108,7 @@ try {
     check(($attendanceRosterAfter['data'][0]['remarks'] ?? '') === 'Arrived ten minutes late', 'Attendance remarks were not persisted.');
     $attendanceList = expect_status(api_request($base, '/api/attendance.php?action=list&course_id=' . $courseIds[0] . '&date=' . $attendanceDate, 'GET', null, $cookie), 200, 'Admin lists saved attendance records');
     check(count($attendanceList['data'] ?? []) === 1, 'Unique course/student/date attendance record was duplicated.');
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Admin logout after attendance entry');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin logout after attendance entry');
     $cookie = null;
     $studentAttendanceLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $studentEmail, 'password' => $studentPassword], $cookie), 200, 'Student login to verify attendance history');
     $csrf = $studentAttendanceLogin['data']['csrf_token'] ?? null;
@@ -1119,31 +1119,31 @@ try {
     $availableExam = expect_status(api_request($base, '/api/exams.php?action=detail&id=' . $examId, 'GET', null, $cookie), 200, 'Enrolled student can open course examination');
     check(count($availableExam['data']['questions'] ?? []) === 3, 'Student exam detail did not return the question list.');
     check(!array_key_exists('correct_option_index', $availableExam['data']['questions'][0]) && !array_key_exists('explanation', $availableExam['data']['questions'][0]), 'Student exam detail leaked correct answers before submission.');
-    $startedAttempt = expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $cookie, $csrf), 200, 'Enrolled student starts timed exam');
+    $startedAttempt = expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Enrolled student starts timed exam');
     $attemptId = (int)$startedAttempt['data']['attempt']['id'];
     $examQuestionIds = array_map(static fn(array $question): string => (string)$question['id'], $availableExam['data']['questions']);
     expect_status(api_request($base, '/api/exams.php?action=save_answers&id=' . $attemptId, 'POST', [
         'answers' => [$examQuestionIds[0] => 99],
-    ], $cookie, $csrf), 422, 'Invalid answer option index is rejected');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 422, 'Invalid answer option index is rejected');
     expect_status(api_request($base, '/api/exams.php?action=save_answers&id=' . $attemptId, 'POST', [
         'answers' => [$examQuestionIds[0] => 1],
-    ], $cookie, $csrf), 200, 'Student autosaves an in-progress exam answer');
-    $resumedAttempt = expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $cookie, $csrf), 200, 'Student resumes the existing in-progress attempt');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student autosaves an in-progress exam answer');
+    $resumedAttempt = expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student resumes the existing in-progress attempt');
     check((int)$resumedAttempt['data']['attempt']['id'] === $attemptId && (int)($resumedAttempt['data']['attempt']['answers'][$examQuestionIds[0]] ?? -1) === 1, 'Exam resume did not restore the saved answer.');
     $examResult = expect_status(api_request($base, '/api/exams.php?action=submit&id=' . $attemptId, 'POST', [
         'answers' => [$examQuestionIds[0] => 1, $examQuestionIds[1] => 1, $examQuestionIds[2] => 0],
-    ], $cookie, $csrf), 200, 'Server grades submitted examination');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Server grades submitted examination');
     check((float)$examResult['data']['score'] === 2.75 && (float)$examResult['data']['total_marks'] === 5.0, 'Exam score or negative marking was calculated incorrectly.');
     check((float)$examResult['data']['percentage'] === 55.0 && ($examResult['data']['passed'] ?? false) === true, 'Exam percentage or pass threshold was calculated incorrectly.');
     check(array_key_exists('correct_option_index', $examResult['data']['review'][0]), 'Submitted exam review did not reveal the correct answer.');
-    expect_status(api_request($base, '/api/exams.php?action=submit&id=' . $attemptId, 'POST', ['answers' => []], $cookie, $csrf), 409, 'Exam attempt cannot be submitted twice');
-    expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $cookie, $csrf), 409, 'Student cannot exceed the maximum number of exam attempts');
+    expect_status(api_request($base, '/api/exams.php?action=submit&id=' . $attemptId, 'POST', ['answers' => []], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Exam attempt cannot be submitted twice');
+    expect_status(api_request($base, '/api/exams.php?action=start&id=' . $examId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Student cannot exceed the maximum number of exam attempts');
     $studentAttempts = expect_status(api_request($base, '/api/exams.php?action=attempts&exam_id=' . $examId, 'GET', null, $cookie), 200, 'Student can view own exam attempt history');
     check(count($studentAttempts['data'] ?? []) === 1 && (int)$studentAttempts['data'][0]['id'] === $attemptId, 'Student attempt history did not return the submitted attempt.');
 
     $studentMarksheetWallet = expect_status(api_request($base, '/api/marksheets.php?action=list', 'GET', null, $cookie), 200, 'Student loads own persistent marksheet wallet');
     check(count($studentMarksheetWallet['data'] ?? []) === 0, 'A marksheet must not be fabricated before an administrator issues it.');
-    expect_status(api_request($base, '/api/marksheets.php?action=issue', 'POST', ['attempt_id' => $attemptId], $cookie, $csrf), 403, 'Student cannot issue an official marksheet');
+    expect_status(api_request($base, '/api/marksheets.php?action=issue', 'POST', ['attempt_id' => $attemptId], $commissionAdminCookie, $commissionAdminCsrf), 403, 'Student cannot issue an official marksheet');
     expect_status(api_request($base, '/api/marksheets.php?action=eligible_attempts', 'GET', null, $cookie), 403, 'Student cannot access the marksheet issuance queue');
     expect_status(api_request($base, '/api/marksheets.php?action=eligible_attempts', 'GET', null, $branchManagerCookie), 403, 'Branch manager cannot access the global marksheet issuance queue');
     expect_status(api_request($base, '/api/marksheets.php?action=issue', 'POST', ['attempt_id' => $attemptId], $branchManagerCookie, $branchManagerCsrf), 403, 'Branch manager cannot issue marksheets without branch-scoped authorization');
@@ -1171,17 +1171,17 @@ try {
     check(count($emptyProgress['data'] ?? []) === 0, 'New enrollment should not have pre-existing lesson progress.');
     expect_status(api_request($base, '/api/content.php?action=progress_update', 'POST', [
         'course_id' => $courseIds[0], 'content_item_id' => $paidContentId, 'is_completed' => true, 'notes' => 'Reviewed the lesson and practised the exercises.',
-    ], $cookie, $csrf), 200, 'Enrolled student saves lesson completion and notes');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Enrolled student saves lesson completion and notes');
     expect_status(api_request($base, '/api/content.php?action=progress_update', 'POST', [
         'course_id' => $courseIds[0], 'content_item_id' => $paidContentId, 'is_completed' => true, 'notes' => ['invalid'],
-    ], $cookie, $csrf), 422, 'Non-text lesson notes are rejected');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 422, 'Non-text lesson notes are rejected');
     $savedProgress = expect_status(api_request($base, '/api/content.php?action=progress&course_id=' . $courseIds[0], 'GET', null, $cookie), 200, 'Enrolled student reloads saved lesson progress');
     check(count($savedProgress['data'] ?? []) === 1, 'Saved lesson progress was not returned exactly once.');
     check((int)$savedProgress['data'][0]['content_item_id'] === $paidContentId && (int)$savedProgress['data'][0]['is_completed'] === 1, 'Saved lesson completion state did not persist.');
     check($savedProgress['data'][0]['notes'] === 'Reviewed the lesson and practised the exercises.', 'Saved personal lesson notes did not persist.');
     expect_status(api_request($base, '/api/content.php?action=progress_update', 'POST', [
         'course_id' => $courseIds[0], 'content_item_id' => $paidContentId, 'is_completed' => false, 'notes' => 'Updated study notes.',
-    ], $cookie, $csrf), 200, 'Student updates existing lesson progress without duplication');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student updates existing lesson progress without duplication');
     $progressCount = $db->prepare('SELECT COUNT(*) FROM course_lesson_progress WHERE user_id = ? AND course_id = ? AND content_item_id = ?');
     $progressCount->execute([$studentId, $courseIds[0], $paidContentId]);
     check((int)$progressCount->fetchColumn() === 1, 'Lesson progress upsert created duplicate records.');
@@ -1191,9 +1191,9 @@ try {
     expect_status(api_request($base, '/api/certificates.php?action=list', 'GET', null, $cookie), 403, 'Student cannot access the certificate administration registry');
     expect_status(api_request($base, '/api/certificates.php?action=issue', 'POST', [
         'student_user_id' => $studentId, 'course_id' => $courseIds[0], 'grade' => 'Completed',
-    ], $cookie, $csrf), 403, 'Student cannot issue certificates');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 403, 'Student cannot issue certificates');
 
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Student logout before certificate eligibility review');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student logout before certificate eligibility review');
     $cookie = null;
     $adminCertificateLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $adminEmail, 'password' => $adminPassword], $cookie), 200, 'Admin login for certificate eligibility review');
     $csrf = $adminCertificateLogin['data']['csrf_token'] ?? null;
@@ -1201,28 +1201,28 @@ try {
     check(count($certificateStudents['data'] ?? []) === 1 && (int)$certificateStudents['data'][0]['id'] === $studentId, 'Certificate student search did not return only the matching active student.');
     expect_status(api_request($base, '/api/certificates.php?action=issue', 'POST', [
         'student_user_id' => $studentId, 'course_id' => $courseIds[0], 'grade' => 'Completed',
-    ], $cookie, $csrf), 409, 'Admin cannot issue certificate before course completion');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Admin cannot issue certificate before course completion');
 
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Admin logout after certificate eligibility review');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin logout after certificate eligibility review');
     $cookie = null;
     $studentCertificateLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $studentEmail, 'password' => $studentPassword], $cookie), 200, 'Student login to complete course for certificate');
     $csrf = $studentCertificateLogin['data']['csrf_token'] ?? null;
     expect_status(api_request($base, '/api/content.php?action=progress_update', 'POST', [
         'course_id' => $courseIds[0], 'content_item_id' => $paidContentId, 'is_completed' => true, 'notes' => 'Completed the paid lesson.',
-    ], $cookie, $csrf), 200, 'Student completes first required course lesson');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student completes first required course lesson');
     expect_status(api_request($base, '/api/content.php?action=progress_update', 'POST', [
         'course_id' => $courseIds[0], 'content_item_id' => $contentId, 'is_completed' => true, 'notes' => 'Completed the introduction lesson.',
-    ], $cookie, $csrf), 200, 'Student completes final required course lesson');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student completes final required course lesson');
     $completeProgress = expect_status(api_request($base, '/api/content.php?action=progress&course_id=' . $courseIds[0], 'GET', null, $cookie), 200, 'Student confirms all required course lessons completed');
     check(count(array_filter($completeProgress['data'] ?? [], static fn(array $row): bool => (int)$row['is_completed'] === 1)) === 2, 'Course completion prerequisite did not persist for every lesson.');
 
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Student logout before certificate issuance');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Student logout before certificate issuance');
     $cookie = null;
     $adminCertificateIssueLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $adminEmail, 'password' => $adminPassword], $cookie), 200, 'Admin login to issue course certificate');
     $csrf = $adminCertificateIssueLogin['data']['csrf_token'] ?? null;
     $issuedCertificate = expect_status(api_request($base, '/api/certificates.php?action=issue', 'POST', [
         'student_user_id' => $studentId, 'course_id' => $courseIds[0], 'grade' => 'Completed with Distinction',
-    ], $cookie, $csrf), 201, 'Admin issues certificate after verified course completion');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 201, 'Admin issues certificate after verified course completion');
     $certificateId = (int)$issuedCertificate['data']['id'];
     $certificateNumber = (string)$issuedCertificate['data']['certificate_number'];
     $studentInboxAfterCertificate = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives certificate issuance notification');
@@ -1232,21 +1232,21 @@ try {
     check((bool)preg_match('/^AEC-CERT-\\d{4}-[A-F0-9]{32}$/', $certificateNumber), 'Certificate number must be unique and non-guessable.');
     expect_status(api_request($base, '/api/certificates.php?action=issue', 'POST', [
         'student_user_id' => $studentId, 'course_id' => $courseIds[0], 'grade' => 'Duplicate',
-    ], $cookie, $csrf), 409, 'Duplicate certificate for the same student and course is rejected');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Duplicate certificate for the same student and course is rejected');
     $certificateList = expect_status(api_request($base, '/api/certificates.php?action=list', 'GET', null, $cookie), 200, 'Admin reloads persistent certificate registry');
     check(count(array_filter($certificateList['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $certificateId)) === 1, 'Issued certificate was not persisted in the registry.');
     $publicCertificate = expect_status(api_request($base, '/api/certificates.php?action=verify&cert_no=' . rawurlencode($certificateNumber)), 200, 'Public certificate verification lookup');
     check(($publicCertificate['data']['valid'] ?? false) === true && ($publicCertificate['data']['status'] ?? '') === 'issued', 'Public verification did not report the issued certificate as valid.');
     check(!array_key_exists('studentUserId', $publicCertificate['data']) && !array_key_exists('email', $publicCertificate['data']), 'Public certificate verification leaked private account identifiers.');
     expect_status(api_request($base, '/api/certificates.php?action=verify&cert_no=invalid'), 422, 'Public verification rejects malformed certificate numbers');
-    expect_status(api_request($base, '/api/certificates.php?action=revoke&id=' . $certificateId, 'POST', ['reason' => ''], $cookie, $csrf), 422, 'Certificate revocation requires an audit reason');
-    expect_status(api_request($base, '/api/certificates.php?action=revoke&id=' . $certificateId, 'POST', ['reason' => 'Issued in error during integration test'], $cookie, $csrf), 200, 'Admin revokes certificate with an audit reason');
+    expect_status(api_request($base, '/api/certificates.php?action=revoke&id=' . $certificateId, 'POST', ['reason' => ''], $commissionAdminCookie, $commissionAdminCsrf), 422, 'Certificate revocation requires an audit reason');
+    expect_status(api_request($base, '/api/certificates.php?action=revoke&id=' . $certificateId, 'POST', ['reason' => 'Issued in error during integration test'], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin revokes certificate with an audit reason');
     $studentInboxAfterRevocation = expect_status(api_request($base, '/api/notifications.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student receives certificate revocation notification');
     check(count(array_filter($studentInboxAfterRevocation['data']['items'] ?? [], static fn(array $row): bool => ($row['title'] ?? '') === 'Certificate revoked')) === 1, 'Certificate revocation did not notify the student.');
     $revokedCertificate = expect_status(api_request($base, '/api/certificates.php?action=verify&cert_no=' . rawurlencode($certificateNumber)), 200, 'Public verification reads revoked certificate status');
     check(($revokedCertificate['data']['valid'] ?? true) === false && ($revokedCertificate['data']['status'] ?? '') === 'revoked', 'Revoked certificate must no longer verify as valid.');
-    expect_status(api_request($base, '/api/certificates.php?action=revoke&id=' . $certificateId, 'POST', ['reason' => 'Duplicate revocation'], $cookie, $csrf), 409, 'Certificate cannot be revoked twice');
-    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $cookie, $csrf), 200, 'Admin logout after certificate issuance and revocation');
+    expect_status(api_request($base, '/api/certificates.php?action=revoke&id=' . $certificateId, 'POST', ['reason' => 'Duplicate revocation'], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Certificate cannot be revoked twice');
+    expect_status(api_request($base, '/api/auth.php?action=logout', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin logout after certificate issuance and revocation');
     $cookie = null;
     $studentCertificateReloadLogin = expect_status(api_request($base, '/api/auth.php?action=login', 'POST', ['email' => $studentEmail, 'password' => $studentPassword], $cookie), 200, 'Student login to reload issued certificate');
     $csrf = $studentCertificateReloadLogin['data']['csrf_token'] ?? null;
@@ -1327,17 +1327,17 @@ try {
     check((float)($commissionAfterFullRefund['data']['totals']['gross_commission'] ?? 0) === 0.0
         && (float)($commissionAfterFullRefund['data']['totals']['overpaid_commission'] ?? 0) === 500.0,
         'Full refund did not remove the earned commission and report the already-paid recovery amount.');
-    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes the historical batch for expiry purge test');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes the historical batch for expiry purge test');
     $purgeBatch = expect_status(api_request($base, '/api/batches.php?action=create', 'POST', [
         'course_id' => $courseIds[0], 'name' => 'Expired Purge Batch ' . $suffix,
         'batch_code' => 'PUR-' . strtoupper($suffix), 'schedule' => 'Mon 12:00-13:00',
         'room_number' => 'Purge Room', 'instructor_user_id' => $teacherId, 'max_capacity' => 5,
         'start_date' => '2026-11-15', 'end_date' => '2027-03-01', 'status' => 'upcoming',
-    ], $cookie, $csrf), 201, 'Admin creates an empty batch for retention purge test');
+    ], $commissionAdminCookie, $commissionAdminCsrf), 201, 'Admin creates an empty batch for retention purge test');
     $purgeBatchId = (int)$purgeBatch['data']['id'];
-    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $purgeBatchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes the empty batch');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $purgeBatchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes the empty batch');
     $db->prepare("UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE entity_type = 'batch' AND entity_id IN (?, ?) AND status = 'active'")->execute([$batchId, $purgeBatchId]);
-    $purgeResult = expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $cookie, $csrf), 200, 'Administrator purges only expired recycle-bin records');
+    $purgeResult = expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Administrator purges only expired recycle-bin records');
     check((int)($purgeResult['data']['purged'] ?? 0) >= 1, 'Expired batch without dependencies was not permanently purged.');
     check(count($purgeResult['data']['blocked'] ?? []) >= 1, 'Batch with enrolment/routine history was not reported as retained.');
     $purgedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ?');
@@ -1346,20 +1346,20 @@ try {
     $retainedBatchCheck = $db->prepare('SELECT COUNT(*) FROM batches WHERE id = ? AND deleted_at IS NOT NULL');
     $retainedBatchCheck->execute([$batchId]);
     check((int)$retainedBatchCheck->fetchColumn() === 1, 'Batch with historical enrollments/routines was permanently deleted.');
-    expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $courseIds[0], 'POST', [], $cookie, $csrf), 200, 'Admin moves a course to the recycle bin');
+    expect_status(api_request($base, '/api/courses.php?action=delete&id=' . $courseIds[0], 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin moves a course to the recycle bin');
     $courseRecycleList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists soft-deleted courses');
     $courseRecycleRows = array_values(array_filter($courseRecycleList['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'course' && (int)$row['entity_id'] === (int)$courseIds[0]));
     check(count($courseRecycleRows) === 1, 'Soft-deleted course was not recorded in the recycle bin.');
-    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$courseRecycleRows[0]['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores a course from the recycle bin');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$courseRecycleRows[0]['id'], 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin restores a course from the recycle bin');
     $courseRestoreCheck = $db->prepare('SELECT deleted_at FROM courses WHERE id = ?');
     $courseRestoreCheck->execute([$courseIds[0]]);
     check($courseRestoreCheck->fetchColumn() === null, 'Recycle-bin course restore did not clear deleted_at.');
     if ($contentId !== null) {
-        expect_status(api_request($base, '/api/content.php?action=delete&id=' . $contentId, 'POST', [], $cookie, $csrf), 200, 'Admin moves content to the recycle bin');
+        expect_status(api_request($base, '/api/content.php?action=delete&id=' . $contentId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin moves content to the recycle bin');
         $contentRecycleList = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle bin lists soft-deleted content');
         $contentRecycleRows = array_values(array_filter($contentRecycleList['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'content' && (int)$row['entity_id'] === (int)$contentId));
         check(count($contentRecycleRows) === 1, 'Soft-deleted content was not recorded in the recycle bin.');
-        expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$contentRecycleRows[0]['id'], 'POST', [], $cookie, $csrf), 200, 'Admin restores content from the recycle bin');
+        expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . (int)$contentRecycleRows[0]['id'], 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin restores content from the recycle bin');
         $contentRestoreCheck = $db->prepare('SELECT deleted_at FROM content_items WHERE id = ?');
         $contentRestoreCheck->execute([$contentId]);
         check($contentRestoreCheck->fetchColumn() === null, 'Recycle-bin content restore did not clear deleted_at.');

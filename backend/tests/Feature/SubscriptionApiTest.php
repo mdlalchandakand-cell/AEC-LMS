@@ -46,6 +46,15 @@ class SubscriptionApiTest extends TestCase
             ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
         ]);
 
+        Schema::create('courses', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('title', 180);
+            $table->string('slug', 200);
+            $table->string('status', 20)->default('published');
+            $table->dateTime('deleted_at')->nullable();
+        });
+
         Schema::create('subscription_plans', function (Blueprint $table): void {
             $table->id();
             $table->string('name', 120);
@@ -84,6 +93,18 @@ class SubscriptionApiTest extends TestCase
             $table->dateTime('reviewed_at')->nullable();
             $table->dateTime('cancelled_at')->nullable();
             $table->string('review_note', 500)->nullable();
+            $table->dateTime('created_at')->nullable();
+            $table->dateTime('updated_at')->nullable();
+        });
+
+        Schema::create('user_subscription_courses', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('subscription_id');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('status', 20)->default('active');
+            $table->dateTime('selected_at')->nullable();
             $table->dateTime('created_at')->nullable();
             $table->dateTime('updated_at')->nullable();
         });
@@ -146,7 +167,7 @@ class SubscriptionApiTest extends TestCase
         ]);
     }
 
-    private function createPlan(int $creatorId, string $name = 'Monthly Plan', string $price = '500.00', int $duration = 30): int
+    private function createPlan(int $creatorId, string $name = 'Monthly Plan', string $price = '500.00', int $duration = 30, ?int $maxCourses = null): int
     {
         return (int) DB::table('subscription_plans')->insertGetId([
             'name' => $name,
@@ -156,7 +177,7 @@ class SubscriptionApiTest extends TestCase
             'currency' => 'BDT',
             'billing_period' => 'monthly',
             'duration_days' => $duration,
-            'max_courses' => null,
+            'max_courses' => $maxCourses,
             'features' => json_encode(['Live classes', 'Recorded lessons']),
             'is_active' => 1,
             'sort_order' => 1,

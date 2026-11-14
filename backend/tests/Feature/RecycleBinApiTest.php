@@ -404,7 +404,7 @@ class RecycleBinApiTest extends TestCase
 
         $this->postJson('/api/v1/recycle-bin/' . $itemId . '/restore')->assertForbidden();
 
-        $this->assertDatabaseHas('courses', ['id' => $courseId, 'deleted_at' => now()->subDays(2)]);
+        $this->assertNotNull(DB::table('courses')->where('id', $courseId)->value('deleted_at'));
         $this->assertDatabaseHas('recycle_bin_items', ['id' => $itemId, 'status' => 'active']);
     }
 

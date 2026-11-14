@@ -38,6 +38,13 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 - `GET /api/v1/auth/me` — returns the signed-in user's safe profile and current CSRF token.
 - `POST /api/v1/auth/logout` — invalidates the Laravel session.
 
+## Laravel enrollment read API
+
+- `GET /api/v1/enrollments/my` — returns only the signed-in student's own enrollments and hides enrollments whose course has been soft-deleted.
+- `GET /api/v1/enrollments` — administrator-only enrollment list with optional status filter and pagination.
+
+These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. Enrollment creation, activation, payment verification and branch-scoped management remain on the legacy API until their write rules and parity tests are migrated.
+
 Authentication uses a separate `aec_laravel_session` cookie and does not reuse or overwrite the legacy `AEC_LMS_SESSION` cookie. Disabled accounts are rejected, login attempts are limited per email/IP, and a changed `session_version` invalidates an existing Laravel session. Role, branch, active-status and session-version fields are not mass assignable.
 
 For a frontend hosted on a different subdomain, configure exact trusted origins in `CORS_ALLOWED_ORIGINS` (comma-separated), set `SESSION_DOMAIN` to the parent domain (for example `.example.com`), keep `SESSION_SECURE_COOKIE=true`, and use HTTPS. The frontend must send credentials and the returned token in the `X-CSRF-TOKEN` header on state-changing requests. Do not use a wildcard origin with credentialed cookies.

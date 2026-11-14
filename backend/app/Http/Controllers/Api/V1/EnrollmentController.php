@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\CourseEnrollment;
+use App\Support\LmsPermission;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class EnrollmentController extends Controller
 {
@@ -50,7 +52,9 @@ class EnrollmentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        if ($request->user()->role !== 'admin') {
+        $actor = $request->user();
+
+        if (!LmsPermission::allows($actor, 'enrollments.manage')) {
             return response()->json([
                 'success' => false,
                 'message' => 'You do not have permission to manage enrollments.',
@@ -70,6 +74,21 @@ class EnrollmentController extends Controller
                 'enrolledBy:id,name',
             ])
             ->whereHas('course');
+
+        if ($actor->role === 'branch_manager') {
+            if (!$actor->branch_id || !DB::table('branches')
+                ->where('id', $actor->branch_id)
+                ->where('is_active', 1)
+                ->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account is not assigned to an active branch.',
+                    'error' => 'Forbidden.',
+                ], 403);
+            }
+
+            $query->where('branch_id', $actor->branch_id);
+        }
 
         if (isset($validated['status'])) {
             $query->where('status', $validated['status']);

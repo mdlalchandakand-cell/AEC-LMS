@@ -393,4 +393,44 @@ class SubscriptionApiTest extends TestCase
         $this->getJson('/api/v1/subscriptions/plans')->assertOk()->assertJsonCount(0, 'data.items');
         $this->assertNotNull(DB::table('subscription_plans')->where('id', $planId)->value('deleted_at'));
     }
+    public function test_subscription_course_limit_is_enforced_and_selected_courses_are_listed(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin', null);
+        $studentId = $this->createUser('student@example.test', 'student', 10);
+        $planId = $this->createPlan($adminId, 'One Course Trial', '0.00', 30, 1);
+        $courseOne = (int) DB::table('courses')->insertGetId([
+            'branch_id' => 10, 'title' => 'Course One', 'slug' => 'course-one', 'status' => 'published',
+        ]);
+        $courseTwo = (int) DB::table('courses')->insertGetId([
+            'branch_id' => 10, 'title' => 'Course Two', 'slug' => 'course-two', 'status' => 'published',
+        ]);
+        $this->login('student@example.test');
+        $subscription = $this->postJson('/api/v1/subscriptions', ['plan_id' => $planId])
+            ->assertCreated()
+            ->assertJsonPath('data.status', 'active');
+        $subscriptionId = (int) $subscription->json('data.id');
+
+        $this->postJson('/api/v1/subscriptions/' . $subscriptionId . '/courses', [
+            'course_id' => $courseOne,
+        ])->assertCreated();
+        $this->postJson('/api/v1/subscriptions/' . $subscriptionId . '/courses', [
+            'course_id' => $courseTwo,
+        ])->assertStatus(409);
+
+        $this->getJson('/api/v1/subscriptions/my/courses')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.items')
+            ->assertJsonPath('data.items.0.course_id', $courseOne);
+        $this->getJson('/api/v1/subscriptions/my/access')
+            ->assertOk()
+            ->assertJsonPath('data.subscription.selected_courses', 1)
+            ->assertJsonPath('data.subscription.remaining_course_seats', 0);
+        $this->assertDatabaseHas('user_subscription_courses', [
+            'subscription_id' => $subscriptionId,
+            'user_id' => $studentId,
+            'course_id' => $courseOne,
+            'status' => 'active',
+        ]);
+    }
+
 }

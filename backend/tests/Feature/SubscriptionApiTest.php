@@ -51,6 +51,7 @@ class SubscriptionApiTest extends TestCase
             $table->unsignedBigInteger('branch_id')->nullable();
             $table->string('title', 180);
             $table->string('slug', 200);
+            $table->string('thumbnail', 1000)->nullable();
             $table->string('status', 20)->default('published');
             $table->dateTime('deleted_at')->nullable();
         });

@@ -48,6 +48,15 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 
 These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. The create/update actions do not process payments or grant access based on payment status. Payment verification and gateway workflows remain on the legacy API until their write rules and parity tests are migrated.
 
+## Laravel live class API
+
+- `GET /api/v1/live-classes` — students see only non-cancelled classes for active/completed enrollments; teachers see their own classes; administrators and branch managers see permission-scoped schedules.
+- `POST /api/v1/live-classes` — schedules a class for Google Meet, Zoom or Microsoft Teams, validates the HTTPS host, uses Bangladesh-local date/time, and checks instructor/course branch ownership.
+- `PATCH /api/v1/live-classes/{id}` — allows the supported upcoming → live/completed and live → completed transitions and accepts an HTTPS recording URL.
+- `POST /api/v1/live-classes/{id}/cancel` — cancels an upcoming/live class but not an already completed class.
+
+Create, update and cancel actions are audited and notify the instructor and eligible enrolled students. The LMS stores meeting links and recordings; actual participant capacity and availability depend on the connected meeting provider's subscription. Configure a provider plan that supports the required 300+ attendees before advertising that capacity.
+
 ## Laravel payment API
 
 - `GET /api/v1/payments/my` — returns only the signed-in student's payment history and completed refund totals.
@@ -74,4 +83,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, payment history, manual payment submission, payment verification, rejection and provider-confirmed refund recording endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

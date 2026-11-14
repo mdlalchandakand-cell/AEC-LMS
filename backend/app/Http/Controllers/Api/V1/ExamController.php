@@ -57,6 +57,10 @@ class ExamController extends Controller
                                 ->whereColumn('course_enrollments.course_id', 'exams.course_id')
                                 ->where('course_enrollments.user_id', $actor->id)
                                 ->whereIn('course_enrollments.status', ['active', 'completed'])
+                                ->where(function ($window): void {
+                                    $window->whereNull('course_enrollments.ends_at')
+                                        ->orWhere('course_enrollments.ends_at', '>', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+                                })
                                 ->where('enrolled_course.status', 'published')
                                 ->whereNull('enrolled_course.deleted_at')
                                 ->where(function ($branch): void {
@@ -67,6 +71,24 @@ class ExamController extends Controller
                                                 ->whereColumn('branches.id', 'enrolled_course.branch_id')
                                                 ->where('branches.is_active', 1);
                                         });
+                                });
+                        })
+                        ->orWhereExists(function ($subscription) use ($actor): void {
+                            $now = now('Asia/Dhaka')->format('Y-m-d H:i:s');
+                            $subscription->selectRaw('1')
+                                ->from('user_subscription_courses as selected')
+                                ->join('user_subscriptions', 'user_subscriptions.id', '=', 'selected.subscription_id')
+                                ->whereColumn('selected.course_id', 'exams.course_id')
+                                ->where('selected.user_id', $actor->id)
+                                ->where('selected.status', 'active')
+                                ->where('user_subscriptions.status', 'active')
+                                ->where(function ($starts) use ($now): void {
+                                    $starts->whereNull('user_subscriptions.starts_at')
+                                        ->orWhere('user_subscriptions.starts_at', '<=', $now);
+                                })
+                                ->where(function ($ends) use ($now): void {
+                                    $ends->whereNull('user_subscriptions.ends_at')
+                                        ->orWhere('user_subscriptions.ends_at', '>', $now);
                                 });
                         });
                 });
@@ -812,10 +834,31 @@ class ExamController extends Controller
             return true;
         }
 
-        return DB::table('course_enrollments')
+        $nowString = $now->format('Y-m-d H:i:s');
+        $enrolled = DB::table('course_enrollments')
             ->where('user_id', $actor->id)
             ->where('course_id', $exam->course_id)
             ->whereIn('status', ['active', 'completed'])
+            ->where(function ($window) use ($nowString): void {
+                $window->whereNull('ends_at')->orWhere('ends_at', '>', $nowString);
+            })
+            ->exists();
+        if ($enrolled) {
+            return true;
+        }
+
+        return DB::table('user_subscription_courses as selected')
+            ->join('user_subscriptions as subscriptions', 'subscriptions.id', '=', 'selected.subscription_id')
+            ->where('selected.user_id', $actor->id)
+            ->where('selected.course_id', $exam->course_id)
+            ->where('selected.status', 'active')
+            ->where('subscriptions.status', 'active')
+            ->where(function ($starts) use ($nowString): void {
+                $starts->whereNull('subscriptions.starts_at')->orWhere('subscriptions.starts_at', '<=', $nowString);
+            })
+            ->where(function ($ends) use ($nowString): void {
+                $ends->whereNull('subscriptions.ends_at')->orWhere('subscriptions.ends_at', '>', $nowString);
+            })
             ->exists();
     }
 

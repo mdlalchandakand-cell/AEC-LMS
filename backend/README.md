@@ -180,12 +180,12 @@ Attempt ownership, time expiry, max attempts, answer indexes and grading are enf
 
 ## Laravel live class API
 
-- `GET /api/v1/live-classes` — students see only non-cancelled classes for active/completed enrollments; teachers see their own classes; administrators and branch managers see permission-scoped schedules.
-- `POST /api/v1/live-classes` — schedules a class for Google Meet, Zoom or Microsoft Teams, validates the HTTPS host, uses Bangladesh-local date/time, and checks instructor/course branch ownership.
+- `GET /api/v1/live-classes` — students see only non-cancelled classes for active/completed enrollments or active subscription course seats; teachers see their own classes; administrators and branch managers see permission-scoped schedules.
+- `POST /api/v1/live-classes` — schedules a class for Google Meet, Zoom, Microsoft Teams or YouTube unlisted streams, validates the HTTPS host, uses Bangladesh-local date/time, checks instructor/course branch ownership, and stores a configurable 300–5,000 participant target.
 - `PATCH /api/v1/live-classes/{id}` — allows the supported upcoming → live/completed and live → completed transitions and accepts an HTTPS recording URL.
 - `POST /api/v1/live-classes/{id}/cancel` — cancels an upcoming/live class but not an already completed class.
 
-Create, update and cancel actions are audited and notify the instructor and eligible enrolled students. The LMS stores meeting links and recordings; actual participant capacity and availability depend on the connected meeting provider's subscription. Configure a provider plan that supports the required 300+ attendees before advertising that capacity.
+Create, update and cancel actions are audited and notify the instructor and eligible enrolled/subscription students. The LMS stores meeting links and recordings; `participant_limit` is a scheduling target, not a provider-side capacity guarantee. Actual participant capacity, recording and stream availability depend on the connected provider account. Configure and verify a provider plan that supports the required 300+ attendees before advertising that capacity. Migration `033_live_class_capacity_and_youtube.sql` adds the audience target and YouTube unlisted platform.
 
 ## Laravel payment API
 

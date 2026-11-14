@@ -41,6 +41,13 @@ class PaymentApiTest extends TestCase
             $table->boolean('is_active')->default(true);
         });
 
+        Schema::create('branches', function (Blueprint $table): void {
+            $table->id();
+            $table->string('code', 32);
+            $table->string('name', 160);
+            $table->boolean('is_active')->default(true);
+        });
+
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
             $table->string('title', 180);
@@ -143,6 +150,10 @@ class PaymentApiTest extends TestCase
 
     public function test_payment_management_uses_permission_and_branch_scope(): void
     {
+        DB::table('branches')->insert([
+            ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
+        ]);
         $managerId = $this->createUser('manager@example.test', 'branch_manager', 10);
         $studentOne = $this->createUser('student-one@example.test', 'student', 10);
         $studentTwo = $this->createUser('student-two@example.test', 'student', 20);

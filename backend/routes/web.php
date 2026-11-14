@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\ExamController;
 use App\Http\Controllers\Api\V1\LiveClassController;
 use App\Http\Controllers\Api\V1\TeacherCommissionController;
 use App\Http\Controllers\Api\V1\PaymentController;
+use App\Http\Controllers\Api\V1\QuestionBankController;
 use App\Http\Controllers\Api\V1\RecycleBinController;
 use Illuminate\Support\Facades\Route;
 
@@ -108,6 +109,18 @@ Route::prefix('api/v1/progress')
     ->middleware(['auth', 'lms.session'])
     ->group(function (): void {
         Route::post('/lessons', [CourseProgressController::class, 'update'])->name('lessons.update');
+    });
+
+Route::prefix('api/v1/question-bank')
+    ->name('api.v1.question-bank.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [QuestionBankController::class, 'index'])->name('index');
+        Route::post('/', [QuestionBankController::class, 'store'])->name('store');
+        Route::post('/add-to-exam', [QuestionBankController::class, 'addToExam'])->name('add-to-exam');
+        Route::get('/{question}', [QuestionBankController::class, 'show'])->whereNumber('question')->name('show');
+        Route::patch('/{question}', [QuestionBankController::class, 'update'])->whereNumber('question')->name('update');
+        Route::delete('/{question}', [QuestionBankController::class, 'destroy'])->whereNumber('question')->name('destroy');
     });
 
 Route::prefix('api/v1/exams')

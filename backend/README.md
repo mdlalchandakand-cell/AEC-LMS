@@ -92,6 +92,13 @@ Teacher course ownership is checked server-side; changing an ID in the request c
 
 Teacher access is restricted to content/course ownership and active assignments; branch managers cannot modify content shared across other branches. Media links must use HTTPS.
 
+## Laravel reusable MCQ question bank API
+
+- `GET /api/v1/question-bank` and `GET /api/v1/question-bank/{id}` — permission-checked question-bank library for authorized staff.
+- `POST /api/v1/question-bank` and `PATCH /api/v1/question-bank/{id}` — create and update reusable MCQs with validated options, correct answer, explanation, marks, difficulty and tags.
+- `POST /api/v1/question-bank/add-to-exam` — imports published question-bank items into a draft exam, requires both question-bank and exam permissions, checks teacher/branch ownership, validates every selected item before writing, and enforces the 200-question cap.
+- `DELETE /api/v1/question-bank/{id}` — archives an unused question. Questions already copied into an exam cannot be archived or unpublished, preserving historical exam integrity.
+
 ## Laravel timed MCQ examination API
 
 - `GET /api/v1/exams` and `GET /api/v1/exams/{id}` — authorized managers see permitted drafts; students see only published exams within their availability window and only when enrolled in the linked published course. Correct answers and explanations are hidden from students before submission.

@@ -30,8 +30,24 @@ class EnrollmentApiTest extends TestCase
             $table->timestamp('updated_at')->nullable();
         });
 
+        Schema::create('role_permissions', function (Blueprint $table): void {
+            $table->id();
+            $table->string('role', 40);
+            $table->string('permission_key', 100);
+            $table->boolean('allowed')->default(false);
+            $table->unique(['role', 'permission_key']);
+        });
+
+        Schema::create('branches', function (Blueprint $table): void {
+            $table->id();
+            $table->string('code', 32);
+            $table->string('name', 160);
+            $table->boolean('is_active')->default(true);
+        });
+
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
+            $table->unsignedBigInteger('branch_id')->nullable();
             $table->string('title', 180);
             $table->string('slug', 200)->unique();
             $table->string('thumbnail', 500)->nullable();
@@ -56,15 +72,21 @@ class EnrollmentApiTest extends TestCase
             $table->dateTime('updated_at')->nullable();
             $table->unique(['user_id', 'course_id']);
         });
+
+        DB::table('role_permissions')->insert([
+            ['role' => 'admin', 'permission_key' => 'enrollments.manage', 'allowed' => 1],
+            ['role' => 'branch_manager', 'permission_key' => 'enrollments.manage', 'allowed' => 1],
+        ]);
     }
 
-    private function createUser(string $email, string $role, string $name): int
+    private function createUser(string $email, string $role, string $name, ?int $branchId = null): int
     {
         return (int) DB::table('users')->insertGetId([
             'name' => $name,
             'email' => $email,
             'password_hash' => Hash::make('Correct-Test-Password-123!'),
             'role' => $role,
+            'branch_id' => $branchId,
             'is_active' => 1,
             'session_version' => 1,
             'created_at' => now(),
@@ -117,7 +139,7 @@ class EnrollmentApiTest extends TestCase
             ->assertJsonMissing(['course_title' => 'Deleted Course']);
     }
 
-    public function test_only_admin_can_list_enrollments_and_filter_by_status(): void
+    public function test_admin_with_enrollment_permission_can_list_and_filter_enrollments(): void
     {
         $adminId = $this->createUser('admin@example.test', 'admin', 'LMS Admin');
         $studentId = $this->createUser('student@example.test', 'student', 'Student');
@@ -157,6 +179,47 @@ class EnrollmentApiTest extends TestCase
     {
         $this->createUser('student@example.test', 'student', 'Student');
         $this->login('student@example.test');
+
+        $this->getJson('/api/v1/enrollments')
+            ->assertForbidden()
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_branch_manager_only_sees_enrollments_in_their_active_branch(): void
+    {
+        DB::table('branches')->insert([
+            ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
+        ]);
+        $managerId = $this->createUser('manager@example.test', 'branch_manager', 'Branch Manager', 10);
+        $studentOne = $this->createUser('student-one@example.test', 'student', 'Student One', 10);
+        $studentTwo = $this->createUser('student-two@example.test', 'student', 'Student Two', 20);
+        $courseOne = DB::table('courses')->insertGetId([
+            'branch_id' => 10, 'title' => 'Branch 10 Course', 'slug' => 'branch-10-course',
+            'status' => 'published', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $courseTwo = DB::table('courses')->insertGetId([
+            'branch_id' => 20, 'title' => 'Branch 20 Course', 'slug' => 'branch-20-course',
+            'status' => 'published', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('course_enrollments')->insert([
+            ['user_id' => $studentOne, 'course_id' => $courseOne, 'branch_id' => 10, 'status' => 'active', 'enrolled_by' => $managerId, 'enrolled_at' => now(), 'created_at' => now()],
+            ['user_id' => $studentTwo, 'course_id' => $courseTwo, 'branch_id' => 20, 'status' => 'active', 'enrolled_by' => $managerId, 'enrolled_at' => now(), 'created_at' => now()],
+        ]);
+
+        $this->login('manager@example.test');
+
+        $this->getJson('/api/v1/enrollments')
+            ->assertOk()
+            ->assertJsonPath('data.pagination.total', 1)
+            ->assertJsonPath('data.items.0.course_title', 'Branch 10 Course')
+            ->assertJsonMissing(['course_title' => 'Branch 20 Course']);
+    }
+
+    public function test_branch_manager_without_active_branch_is_forbidden(): void
+    {
+        $this->createUser('manager@example.test', 'branch_manager', 'Branch Manager', 404);
+        $this->login('manager@example.test');
 
         $this->getJson('/api/v1/enrollments')
             ->assertForbidden()

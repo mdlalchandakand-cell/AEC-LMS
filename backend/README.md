@@ -72,6 +72,16 @@ Commission calculations use verified/refunded course payments within the assignm
 
 Guardian access is consent-based: a pending request never exposes student records. Link requests, approvals, rejections and revocations are audited and relevant parties are notified.
 
+## Laravel course management API
+
+- `GET /api/v1/course-management` — teachers see courses they created or are actively assigned to; administrators and branch managers see their permitted scope.
+- `POST /api/v1/course-management` — teachers can create courses in their own branch; administrators and branch managers can create courses within their scope.
+- `PATCH /api/v1/course-management/{id}` — updates course details while preserving omitted optional fields; teachers can edit only courses they created or are actively assigned to.
+- `DELETE /api/v1/course-management/{id}` — soft-deletes the course, closes active teacher commission assignments at the deletion timestamp, and creates a 30-day recycle-bin record.
+- `POST /api/v1/course-management/{id}/restore` — restores a deleted course for its authorized owner/administrator within an active branch.
+
+Teacher course ownership is checked server-side; changing an ID in the request cannot grant access to another teacher's course. Restoring a deleted course does not silently reopen commission assignments; an administrator must explicitly reassign a teacher if needed.
+
 ## Laravel course progress API
 
 - `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.
@@ -112,4 +122,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, teacher/admin course management and recycle restore, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

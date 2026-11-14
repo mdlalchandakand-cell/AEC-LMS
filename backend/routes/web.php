@@ -42,4 +42,5 @@ Route::prefix('api/v1/payments')
     ->group(function (): void {
         Route::get('/my', [PaymentController::class, 'my'])->name('my');
         Route::get('/', [PaymentController::class, 'index'])->name('index');
+        Route::post('/', [PaymentController::class, 'store'])->name('store');
     });

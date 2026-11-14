@@ -384,7 +384,7 @@ class LiveClassController extends Controller
         ]);
     }
 
-    private function classForActor($actor, int $id): object|JsonResponse
+    private function classForActor($actor, int $id): mixed
     {
         if (!LmsPermission::allows($actor, 'live_classes.manage')) {
             return response()->json([

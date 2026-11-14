@@ -24,6 +24,10 @@ The latest commission and batch modules are server-backed rather than local dash
 
 Database migrations are in `database/migrations/` and are applied in numeric filename order with `php scripts/migrate.php`. The CLI runner records checksums and refuses edited or missing applied migrations. API configuration and route notes are in `api/README.md`; cPanel deployment notes are in `docs/CPANEL-DEPLOYMENT.md`.
 
+## Laravel 12 backend foundation
+
+A separate Laravel 12 application has been added under `backend/` with Composer dependencies, framework bootstrap, environment/configuration files, authentication model foundation, API/web routes, a health endpoint and PHPUnit feature tests. It is intentionally isolated from the currently working React/Vite frontend and legacy PHP API while migration proceeds. The initial Laravel health endpoint does not yet replace any legacy LMS module. See `backend/README.md` for the migration policy and `docs/CPANEL-DEPLOYMENT.md` for deployment topology.
+
 ## Engineering and security principles
 
 1. Server-side persistence is authoritative; browser storage is not the production database.
@@ -38,6 +42,8 @@ Database migrations are in `database/migrations/` and are applied in numeric fil
 **Not production-ready. Do not deploy or distribute this repository as a final LMS package yet.**
 
 The main branch now contains persistent APIs and migrations for the modules listed above, and the merged release checks have passed PHP 8.3 syntax/migration safety, MySQL schema and PHP HTTP integration, frontend type-check/build, CodeQL and real cPanel ZIP assembly/content inspection. These checks do not replace a real hosting rehearsal.
+
+The Laravel 12 application is a new foundation, not yet the production request path for the existing LMS. Its dependency lock and runtime are generated/validated by CI; module-by-module migration, parity testing, host routing and a clean cPanel deployment rehearsal remain open.
 
 The following release gates remain open:
 

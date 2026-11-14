@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 import { Video, Calendar, Clock, Plus, Play, Users, X, Trash2, RefreshCw } from 'lucide-react';
 import { ConfirmDeleteModal } from '../common/ConfirmDeleteModal';
 
 type LiveClassRow = {
   id: number; course_id: number; course_title: string; instructor_id: number; instructor_name: string;
-  title: string; starts_at: string; timezone: string; meeting_platform: 'google_meet'|'zoom'|'teams';
-  meeting_url: string; recording_url?: string|null; status: 'upcoming'|'live'|'completed'|'cancelled';
+  title: string; starts_at: string; timezone: string; meeting_platform: 'google_meet'|'zoom'|'teams'|'youtube_unlisted';
+  meeting_url: string; participant_limit: number; recording_url?: string|null; status: 'upcoming'|'live'|'completed'|'cancelled';
 };
 type Instructor = { id: number; name: string; role: string };
 
@@ -28,7 +29,8 @@ export const LiveClassManager: React.FC = () => {
   const [instructorId, setInstructorId] = useState('');
   const [date, setDate] = useState(localDate());
   const [time, setTime] = useState('19:30');
-  const [platform, setPlatform] = useState<'google_meet'|'zoom'|'teams'>('google_meet');
+  const [platform, setPlatform] = useState<'google_meet'|'zoom'|'teams'|'youtube_unlisted'>('google_meet');
+  const [participantLimit, setParticipantLimit] = useState(300);
   const [meetingUrl, setMeetingUrl] = useState('');
   const [recordingUrls, setRecordingUrls] = useState<Record<number,string>>({});
 
@@ -38,9 +40,14 @@ export const LiveClassManager: React.FC = () => {
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    const result = await apiClient.liveClasses.getAll();
-    if (result.success && Array.isArray(result.data)) {
-      setClasses(result.data as LiveClassRow[]);
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.liveClasses.list()
+      : await apiClient.liveClasses.getAll();
+    const items = isLaravelApiEnabled
+      ? (result.data as { items?: unknown[] } | undefined)?.items
+      : result.data;
+    if (result.success && Array.isArray(items)) {
+      setClasses(items as LiveClassRow[]);
     } else {
       setError(result.error || 'Could not load live classes from the LMS server.');
     }
@@ -63,12 +70,26 @@ export const LiveClassManager: React.FC = () => {
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError(''); setNotice('');
-    const payload = {
-      course_id: Number(courseId), title: title.trim(), date, time,
-      meeting_platform: platform, meeting_url: meetingUrl.trim(),
-      ...(isAdmin ? { instructor_id: Number(instructorId) } : {}),
-    };
-    const result = await apiClient.liveClasses.create(payload);
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.liveClasses.create({
+          course_id: Number(courseId),
+          title: title.trim(),
+          date,
+          time,
+          meeting_platform: platform,
+          meeting_url: meetingUrl.trim(),
+          participant_limit: participantLimit,
+          ...(isAdmin ? { instructor_id: Number(instructorId) } : {}),
+        })
+      : await apiClient.liveClasses.create({
+          course_id: Number(courseId),
+          title: title.trim(),
+          date,
+          time,
+          meeting_platform: platform === 'youtube_unlisted' ? 'google_meet' : platform,
+          meeting_url: meetingUrl.trim(),
+          ...(isAdmin ? { instructor_id: Number(instructorId) } : {}),
+        });
     setSaving(false);
     if (!result.success) { setError(result.error || 'Could not schedule the live class.'); return; }
     setNotice('Live class saved to the database.');
@@ -78,11 +99,14 @@ export const LiveClassManager: React.FC = () => {
 
   const updateStatus = async (item: LiveClassRow, status: 'live'|'completed') => {
     setSaving(true); setError(''); setNotice('');
-    const result = await apiClient.liveClasses.update(item.id, {
+    const updatePayload = {
       status,
       ...(status === 'completed' && recordingUrls[item.id]?.trim()
         ? { recording_url: recordingUrls[item.id].trim() } : {}),
-    });
+    };
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.liveClasses.update(item.id, updatePayload)
+      : await apiClient.liveClasses.update(item.id, updatePayload);
     setSaving(false);
     if (!result.success) { setError(result.error || 'Could not update the live class.'); return; }
     setNotice(status === 'live' ? 'Live class marked as live.' : 'Live class marked as completed.');
@@ -92,7 +116,9 @@ export const LiveClassManager: React.FC = () => {
   const cancelClass = async () => {
     if (!classToCancel) return;
     setSaving(true); setError('');
-    const result = await apiClient.liveClasses.cancel(classToCancel.id);
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.liveClasses.cancel(classToCancel.id)
+      : await apiClient.liveClasses.cancel(classToCancel.id);
     setSaving(false);
     if (!result.success) { setError(result.error || 'Could not cancel the live class.'); return; }
     setClassToCancel(null); setNotice('Live class cancelled. The record remains in the audit history.');
@@ -138,6 +164,7 @@ export const LiveClassManager: React.FC = () => {
                   <div className="flex items-center gap-2"><Calendar className="h-3.5 w-3.5 text-blue-600"/>{starts.slice(0,10)}</div>
                   <div className="flex items-center gap-2"><Clock className="h-3.5 w-3.5 text-blue-600"/>{starts.slice(11,16)} Bangladesh time</div>
                   <div className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-blue-600"/>Instructor: {item.instructor_name}</div>
+                  <div className="flex items-center gap-2"><Users className="h-3.5 w-3.5 text-blue-600"/>Audience target: {item.participant_limit || 300}</div>
                 </div>
               </div>
               <div className="space-y-2 border-t bg-slate-50 p-4">
@@ -165,7 +192,8 @@ export const LiveClassManager: React.FC = () => {
               <label className="block space-y-1">Date<input required type="date" min={localDate()} value={date} onChange={e => setDate(e.target.value)} className="w-full rounded-lg border px-3 py-2"/></label>
               <label className="block space-y-1">Time (BST)<input required type="time" value={time} onChange={e => setTime(e.target.value)} className="w-full rounded-lg border px-3 py-2"/></label>
             </div>
-            <label className="block space-y-1">Platform<select value={platform} onChange={e => setPlatform(e.target.value as typeof platform)} className="w-full rounded-lg border bg-white px-3 py-2"><option value="google_meet">Google Meet</option><option value="zoom">Zoom</option><option value="teams">Microsoft Teams</option></select></label>
+            <label className="block space-y-1">Platform<select value={platform} onChange={e => setPlatform(e.target.value as typeof platform)} className="w-full rounded-lg border bg-white px-3 py-2"><option value="google_meet">Google Meet</option><option value="zoom">Zoom</option><option value="teams">Microsoft Teams</option>{isLaravelApiEnabled && <option value="youtube_unlisted">YouTube Unlisted Stream</option>}</select></label>
+            {isLaravelApiEnabled && <label className="block space-y-1">Participant target (300–5,000)<input required type="number" min={300} max={5000} step={1} value={participantLimit} onChange={e => setParticipantLimit(Math.max(300, Math.min(5000, Number(e.target.value) || 300)))} className="w-full rounded-lg border px-3 py-2"/><span className="text-[10px] text-slate-500">Actual capacity depends on your meeting/stream provider plan.</span></label>}
             <label className="block space-y-1">Meeting URL<input required type="url" value={meetingUrl} onChange={e => setMeetingUrl(e.target.value)} placeholder="HTTPS meeting URL" className="w-full rounded-lg border px-3 py-2"/></label>
             <button type="submit" disabled={saving || !courseId || (isAdmin && !instructorId)} className="w-full rounded-lg bg-blue-600 py-2.5 font-bold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save schedule'}</button>
           </form>

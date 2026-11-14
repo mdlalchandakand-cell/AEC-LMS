@@ -1,0 +1,217 @@
+# Laravel 12 backend foundation
+
+This directory is the Laravel 12 application boundary for the LMS backend. The existing React/Vite client and legacy PHP API remain in place during the migration to avoid breaking current workflows.
+
+## Requirements
+
+- PHP 8.2+ (target hosting baseline: PHP 8.3)
+- Composer 2 (dependency versions are pinned in the committed `composer.lock`)
+- MySQL 8 / compatible MariaDB
+- PHP extensions required by Laravel 12, including Ctype, cURL, DOM, Fileinfo, Filter, Hash, Mbstring, OpenSSL, PCRE, PDO, Session, Tokenizer and XML; PDO MySQL is required for the target database.
+
+## Install locally
+
+```bash
+cd backend
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan test
+php artisan serve
+```
+
+Health checks:
+- `GET /` — backend identity and Laravel version
+- `GET /api/v1/health` — JSON API health endpoint
+
+## Laravel course catalog API (read-only migration slice)
+
+- `GET /api/v1/courses` — published courses only; supports `q`, `category_id`, and `per_page` (1–50, default 12).
+- `GET /api/v1/courses/{slug}` — published course details and published preview lessons only.
+
+The catalog uses the existing `courses`, `course_categories`, `content_items`, and `course_content` tables. Soft-deleted records are excluded. Preview responses intentionally omit lesson body content and never return non-preview or unpublished lessons. No database migration is needed for this read-only slice.
+
+## Laravel session authentication API
+
+- `GET /api/v1/auth/csrf` — starts the Laravel web session and returns a CSRF token.
+- `POST /api/v1/auth/login` — authenticates an existing LMS user by email and `password_hash`.
+- `GET /api/v1/auth/me` — returns the signed-in user's safe profile and current CSRF token.
+- `POST /api/v1/auth/logout` — invalidates the Laravel session.
+- `POST /api/v1/auth/change-password` — verifies the current password, stores a new hash, increments `session_version`, rotates the current session and writes an audit log.
+
+## Laravel enrollment API
+
+- `GET /api/v1/enrollments/my` — returns only the signed-in student's own enrollments and hides enrollments whose course has been soft-deleted.
+- `GET /api/v1/enrollments` — permission-checked enrollment list with optional status filter and pagination; branch managers are restricted to their own active branch.
+- `POST /api/v1/enrollments` — creates an enrollment for an active student in a published course; enforces branch ownership, prevents duplicate student/course pairs, and records an audit event.
+- `PATCH /api/v1/enrollments/{id}` — updates status, start/end dates and notes; enforces permission and branch scope, and records an audit event.
+
+These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. The create/update actions do not process payments or grant access based on payment status. Payment verification and gateway workflows remain on the legacy API until their write rules and parity tests are migrated.
+
+## Laravel teacher commission and payout API
+
+- `GET /api/v1/teacher-commissions/summary` — teachers see their own commission totals; authorized payout managers can view a selected teacher or the overall summary.
+- `GET /api/v1/teacher-commissions/assignments` — lists course/teacher commission assignments.
+- `POST /api/v1/teacher-commissions/assignments` and `POST /api/v1/teacher-commissions/assignments/{id}/unassign` — manage assignment periods and enforce a combined course commission cap of 100%.
+- `GET /api/v1/teacher-commissions/payouts` — teachers see their own payout requests; authorized payout managers can review permitted requests.
+- `POST /api/v1/teacher-commissions/payouts` — teachers request a payout only within their currently available commission balance.
+- `POST /api/v1/teacher-commissions/payouts/{id}/review` — authorized staff approve or reject pending requests; approval recalculates net revenue and available balance.
+- `POST /api/v1/teacher-commissions/payouts/{id}/mark-paid` — marks an approved request paid only with an external provider/bank reference; use only after the transfer is confirmed.
+
+Commission calculations use verified/refunded course payments within the assignment period and subtract completed refunds. Pending/approved payouts reserve balance; paid payouts reduce it. Assignment and payout transitions are audited, and payout status changes notify the teacher.
+
+## Laravel guardian API
+
+- `POST /api/v1/guardians/requests` — a guardian requests a link using the student's account email; same-branch matching and a per-email/IP rate limit apply.
+- `GET /api/v1/guardians/incoming` — the student sees pending requests.
+- `POST /api/v1/guardians/{id}/respond` — only the student can accept or reject their own pending request.
+- `GET /api/v1/guardians/my-students` — lists the guardian's pending/active links; student phone numbers are hidden until approval.
+- `GET /api/v1/guardians/summary?student_id={id}` — returns courses, attendance, submitted exam results, payment history and certificates only while the student is active and the consent link remains active.
+- `POST /api/v1/guardians/{id}/revoke` — either linked party can revoke access immediately.
+- `GET /api/v1/guardians` — administrators and branch managers can review links within their permitted scope.
+
+Guardian access is consent-based: a pending request never exposes student records. Link requests, approvals, rejections and revocations are audited and relevant parties are notified.
+
+## Laravel course management API
+
+- `GET /api/v1/course-management` — teachers see courses they created or are actively assigned to; administrators and branch managers see their permitted scope.
+- `POST /api/v1/course-management` — teachers can create courses in their own branch; administrators and branch managers can create courses within their scope.
+- `PATCH /api/v1/course-management/{id}` — updates course details while preserving omitted optional fields; teachers can edit only courses they created or are actively assigned to.
+- `DELETE /api/v1/course-management/{id}` — soft-deletes the course, closes active teacher commission assignments at the deletion timestamp, and creates a 30-day recycle-bin record.
+- `POST /api/v1/course-management/{id}/restore` — restores a deleted course for its authorized owner/administrator within an active branch.
+
+Teacher course ownership is checked server-side; changing an ID in the request cannot grant access to another teacher's course. Restoring a deleted course does not silently reopen commission assignments; an administrator must explicitly reassign a teacher if needed.
+
+## Laravel teacher content management API
+
+- `GET /api/v1/content-management` — teachers see content they created or content linked to courses they actively teach; authorized content managers see the management library.
+- `POST /api/v1/content-management` — creates a lesson, video, article, file or quiz and links it to a course the teacher is allowed to manage. HTTPS media URLs support unlisted YouTube links.
+- `PATCH /api/v1/content-management/{id}` — updates content only for its creator/assigned teacher or an authorized content manager.
+- `GET /api/v1/content-management/{id}/links`, `POST /api/v1/content-management/attach`, and `POST /api/v1/content-management/detach` — inspect and manage course-content links within course permissions.
+- `DELETE /api/v1/content-management/{id}` and `POST /api/v1/content-management/{id}/restore` — soft-delete and restore content through the persistent recycle bin.
+
+Teacher access is restricted to content/course ownership and active assignments; branch managers cannot modify content shared across other branches. Media links must use HTTPS.
+
+## Laravel subscription plans and course access
+
+- `GET /api/v1/subscriptions/plans` — lists active Bengali/English subscription plans and their price, billing period, duration, course-seat limit and feature list.
+- `POST /api/v1/subscriptions/plans`, `PUT /api/v1/subscriptions/plans/{id}`, and `DELETE /api/v1/subscriptions/plans/{id}` — authorized administrators manage and archive plans without deleting purchase history.
+- `POST /api/v1/subscriptions` — a student requests a paid plan using bKash, Nagad, card, internet banking, bank transfer, cash or offline payment reference. Free plans activate immediately; paid requests remain pending until reviewed.
+- `GET /api/v1/subscriptions/my`, `GET /api/v1/subscriptions/my/access`, and `GET /api/v1/subscriptions/my/courses` — students see their own subscription history, active entitlement and selected course seats.
+- `POST /api/v1/subscriptions/{id}/review` — reviewers with `subscriptions.review` approve or reject a pending payment; approval activates the plan for its configured duration and sends a notification. Accountant review is separate from plan-management permission.
+- `POST /api/v1/subscriptions/{id}/courses` — selects a published course under an active subscription and enforces `max_courses` before granting access.
+- `GET /api/v1/courses/{id}/contents`, course progress and course exam access recognize valid subscription course selections as well as normal enrollments. Cancellation or expiry removes subscription-based access.
+- `POST /api/v1/subscriptions/{id}/cancel` — students can cancel their own pending or active subscription; pending payment records are marked rejected and selected course seats are closed.
+
+Payment records are currently verified by an authorized staff member. Live bKash/Nagad/card gateway callbacks and automatic recurring billing are not enabled by this API slice; provider credentials, merchant approvals and callback signature verification must be implemented and tested before any gateway is advertised as live. Migrations `030_subscription_plans_and_payments.sql` and `032_subscription_course_access.sql` create the plan, payment and course-seat records.
+
+## Laravel course completion certificates
+
+- `GET /api/v1/certificates/verify/{number}` — public verification returns the certificate snapshot and current validity/revocation status without exposing private student account data.
+- `GET /api/v1/certificates/my` — students see only their own certificates.
+- `GET /api/v1/certificates/students` and `GET /api/v1/certificates` — authorized certificate staff can find eligible students and list issued certificates; branch managers are restricted to their branch.
+- `POST /api/v1/certificates` — issues one certificate per student/course only after an active/completed enrollment or valid subscription course seat and course completion; student/course identity is snapshotted, the action is audited, and the student is notified.
+- `POST /api/v1/certificates/{id}/revoke` — revokes an issued certificate with a required reason and notifies the student.
+- Migration `031_certificate_branch_scope.sql` adds and backfills certificate branch ownership for safe branch-manager filtering. The original `014_certificates.sql` remains unchanged for applied-migration checksum safety.
+
+## Laravel reusable MCQ question bank API
+
+- `GET /api/v1/question-bank` and `GET /api/v1/question-bank/{id}` — permission-checked question-bank library for authorized staff.
+- `POST /api/v1/question-bank` and `PATCH /api/v1/question-bank/{id}` — create and update reusable MCQs with validated options, correct answer, explanation, marks, difficulty and tags.
+- `POST /api/v1/question-bank/add-to-exam` — imports published question-bank items into a draft exam, requires both question-bank and exam permissions, checks teacher/branch ownership, validates every selected item before writing, and enforces the 200-question cap.
+- `DELETE /api/v1/question-bank/{id}` — archives an unused question. Questions already copied into an exam cannot be archived or unpublished, preserving historical exam integrity.
+
+## Laravel timed MCQ examination API
+
+- `GET /api/v1/exams` and `GET /api/v1/exams/{id}` — authorized managers see permitted drafts; students see only published exams within their availability window and only when enrolled in the linked published course. Correct answers and explanations are hidden from students before submission.
+- `POST /api/v1/exams`, `PATCH /api/v1/exams/{id}`, and `PUT /api/v1/exams/{id}/questions` — create and configure timed exams, save up to 200 MCQ questions with 2–8 options each, and publish only after questions and total marks are valid. Teacher access is restricted to owned/assigned courses.
+- `POST /api/v1/exams/{id}/start` — starts or resumes a timed attempt, enforces the configured maximum attempts, and returns only question text/options/marks.
+- `POST /api/v1/exams/attempts/{id}/answers` and `POST /api/v1/exams/attempts/{id}/submit` — autosave and server-grade the student's answers, including negative marking, score, percentage, pass status and answer review. An attempt can only be changed by its owner and before expiry.
+- `GET /api/v1/exams/attempts` — students see their own attempts; exam managers and teachers see only permitted scope, with branch managers restricted to their branch.
+- `DELETE /api/v1/exams/{id}` — archives an exam without attempts and records it in the recycle bin. Exams with existing attempts are retained and cannot be archived.
+- Exam restore is available through `POST /api/v1/recycle-bin/{id}/restore`. Permanent deletion remains blocked while linked question/attempt records exist.
+
+The existing React exam screens and legacy `/api/exams.php` workflow are not redirected yet. Frontend/API contract parity and the reusable question-bank API must pass their own tests before the legacy exam routes are retired.
+
+## Laravel recycle-bin API
+
+- `GET /api/v1/recycle-bin` — lists active recycle-bin items; branch managers see only items tagged to their active branch.
+- `POST /api/v1/recycle-bin/{id}/restore` — restores soft-deleted courses or content within the 30-day retention window and records the restoring user.
+- `POST /api/v1/recycle-bin/{id}/permanent-delete` — requires `recycle_bin.purge`, is unavailable before retention expires, and checks linked foreign-key records before deleting. Private-media content and records with historical references are retained with a visible purge error.
+- `POST /api/v1/recycle-bin/purge-expired` — processes up to 500 expired items per request and reports purged versus retained records; items with linked records remain intact.
+- Laravel restore and permanent-delete handlers support all persisted entity types: `course`, `content`, `batch`, `exam`, `cms_post`, and `cms_testimonial`. The handlers retain linked records, audit destructive actions, enforce branch scope, and do not delete private media assets.
+
+## Laravel course progress API
+
+- `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.
+- `POST /api/v1/progress/lessons` — records completion and notes only for a published lesson linked to the course; repeated updates upsert the same user/course/lesson record rather than creating duplicates.
+
+## Laravel reusable question bank API
+
+- `GET /api/v1/question-bank` and `GET /api/v1/question-bank/{id}` — authorized question-bank managers can search/review reusable MCQs.
+- `POST /api/v1/question-bank` and `PATCH /api/v1/question-bank/{id}` — create and maintain question text, options, correct option, explanation, marks, difficulty and tags.
+- `POST /api/v1/question-bank/add-to-exam` — imports selected published questions into a draft exam, checks all IDs before writing, prevents duplicate imports, and updates total marks.
+- `DELETE /api/v1/question-bank/{id}` — archives only questions not already used in an exam.
+
+Question-bank imports require both question-bank and exam permissions; branch managers are restricted to exams in their active branch.
+
+## Laravel certificate API
+
+- `GET /api/v1/certificates/verify/{certificate_number}` — public verification returns only public credential fields and validity status, never account identifiers.
+- `GET /api/v1/certificates/my` — students see their own issued/revoked certificates.
+- `GET /api/v1/certificates/students` and `GET /api/v1/certificates` — authorized staff list eligible students and certificates within their branch scope.
+- `POST /api/v1/certificates` — authorized staff issue one certificate per student/course only after course completion or completion of all published lessons.
+- `POST /api/v1/certificates/{id}/revoke` — authorized staff revoke a certificate with an auditable reason and notify the student.
+
+Certificate numbers are unique and verifiable; student/course snapshots preserve the public record if account or course display names later change.
+
+## Laravel timed MCQ exam API
+
+- `GET /api/v1/exams` and `GET /api/v1/exams/{id}` — students see only published, currently open exams for global access or active/completed course enrollments; correct answers and explanations are hidden until grading.
+- `POST /api/v1/exams` — authorized exam managers and teachers create draft exams within their course scope.
+- `PUT /api/v1/exams/{id}/questions` — saves validated MCQ questions/options, correct option indexes, marks and explanations; questions/settings become immutable after an attempt starts.
+- `PATCH /api/v1/exams/{id}` — updates exam settings and publishes only after questions and marks are valid.
+- `POST /api/v1/exams/{id}/start` — creates or resumes a server-timed attempt and enforces maximum attempts.
+- `POST /api/v1/exams/attempts/{id}/answers` — saves only valid question/option indexes while the attempt remains in time.
+- `POST /api/v1/exams/attempts/{id}/submit` — grades on the server, applies negative marking, records the score and returns the answer review.
+- `GET /api/v1/exams/attempts` — students see their own attempts; authorized exam managers see permitted course attempts.
+- `DELETE /api/v1/exams/{id}` — archives an exam only when no attempts exist and records it in the recycle bin.
+
+Attempt ownership, time expiry, max attempts, answer indexes and grading are enforced server-side; a browser cannot submit its own score.
+
+## Laravel live class API
+
+- `GET /api/v1/live-classes` — students see only non-cancelled classes for active/completed enrollments or active subscription course seats; teachers see their own classes; administrators and branch managers see permission-scoped schedules.
+- `POST /api/v1/live-classes` — schedules a class for Google Meet, Zoom, Microsoft Teams or YouTube unlisted streams, validates the HTTPS host, uses Bangladesh-local date/time, checks instructor/course branch ownership, and stores a configurable 300–5,000 participant target.
+- `PATCH /api/v1/live-classes/{id}` — allows the supported upcoming → live/completed and live → completed transitions and accepts an HTTPS recording URL.
+- `POST /api/v1/live-classes/{id}/cancel` — cancels an upcoming/live class but not an already completed class.
+
+Create, update and cancel actions are audited and notify the instructor and eligible enrolled/subscription students. The LMS stores meeting links and recordings; `participant_limit` is a scheduling target, not a provider-side capacity guarantee. Actual participant capacity, recording and stream availability depend on the connected provider account. Configure and verify a provider plan that supports the required 300+ attendees before advertising that capacity. Migration `033_live_class_capacity_and_youtube.sql` adds the audience target and YouTube unlisted platform.
+
+## Laravel payment API
+
+- `GET /api/v1/payments/my` — returns only the signed-in student's payment history and completed refund totals.
+- `GET /api/v1/payments` — requires the `payments.manage` permission; branch managers must be assigned to an active branch and see only that branch's payments.
+- `POST /api/v1/payments` — lets a student submit a manual bKash, Nagad or bank-transfer payment for a published course. The API validates the amount against the remaining course fee, counts pending/verified payments net of completed refunds, checks active branch ownership, and prevents reuse of a method/transaction reference.
+- `POST /api/v1/payments/{id}/verify` — permission-checks and locks a pending payment, posts balanced debit/credit ledger entries, records an audit event and student notification, and activates course enrollment only after the net verified total covers the course fee.
+- `POST /api/v1/payments/{id}/reject` — requires a non-blank reason, updates only a pending payment, and records an audit event and student notification.
+- `POST /api/v1/payments/{id}/refund` — records a refund only after the external provider has completed it; requires the provider refund reference, amount and reason, prevents over-refunds, posts a balanced reversal journal, updates payment status, and cancels course access when net paid fees fall below the course fee.
+- `GET /api/v1/payments/ledger` — returns payment and refund journal entries with account, student and course context; branch managers see only their assigned branch.
+- `GET /api/v1/payments/reconcile` — checks journal entry count and debit/credit equality, returning any discrepancies within the caller's permitted branch scope.
+
+Amounts and refund totals are serialized consistently as two-decimal BDT values. Provider callbacks and automated provider-side refund execution remain outside this Laravel slice; the refund endpoint records a provider-confirmed transaction and does not call bKash, Nagad or a bank API.
+
+Authentication uses a separate `aec_laravel_session` cookie and does not reuse or overwrite the legacy `AEC_LMS_SESSION` cookie. Disabled accounts are rejected, login attempts are limited per email/IP, and a changed `session_version` invalidates an existing Laravel session. Role, branch, active-status and session-version fields are not mass assignable.
+
+For a frontend hosted on a different subdomain, configure exact trusted origins in `CORS_ALLOWED_ORIGINS` (comma-separated), set `SESSION_DOMAIN` to the parent domain (for example `.example.com`), keep `SESSION_SECURE_COOKIE=true`, and use HTTPS. The frontend must send credentials and the returned token in the `X-CSRF-TOKEN` header on state-changing requests. Do not use a wildcard origin with credentialed cookies.
+
+## Migration policy
+
+Do not remove or redirect the existing `/api/*.php` endpoints until each matching Laravel implementation has:
+1. equivalent authorization, branch scoping, CSRF/session or token semantics;
+2. equivalent request/response contracts used by the React client;
+3. database migration and rollback coverage;
+4. feature tests for success, validation, forbidden access and cross-tenant access;
+5. parity verification against the legacy endpoint.
+
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, teacher/admin course management, teacher content management and recycle restore, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, timed MCQ exams, reusable question bank and grading, verifiable course certificates, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

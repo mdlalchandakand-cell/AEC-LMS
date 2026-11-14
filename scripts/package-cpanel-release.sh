@@ -20,7 +20,7 @@ done
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 cp -a "$DIST_DIR/." "$STAGING_DIR/"
-for required in api database storage; do
+for required in api database storage backend; do
   cp -a "$ROOT_DIR/$required" "$STAGING_DIR/$required"
 done
 # Ship only production CLI tools; leave automated test runners in the source repository.
@@ -47,8 +47,10 @@ EOF
 
 cat > "$STAGING_DIR/INSTALL-NOTES.txt" <<'EOF'
 ALOM'S ENGLISH CENTER — CPANEL RELEASE PACKAGE
-This package contains the built React frontend, real PHP API, database migrations,
-CLI scripts and protected storage rules.
+This package contains the built React frontend, legacy PHP API, Laravel 12 backend,
+database migrations, CLI scripts and protected storage rules.
+The Laravel backend is an additional foundation; legacy PHP endpoints remain active
+until feature-by-feature parity and migration tests pass.
 IMPORTANT:
 - There is no browser-based /install wizard in this release.
 - Do not import an old schema.sql or run DROP TABLE statements.
@@ -60,6 +62,8 @@ IMPORTANT:
 - Create the first administrator with php scripts/create-admin.php.
   Delete scripts/create-admin.php from the hosting account after use.
 - Keep storage/private/.htaccess and nested private-storage deny rules.
+- Configure a separate API subdomain/document root to backend/public; never expose backend/ itself.
+- Configure backend/.env outside version control and generate a unique APP_KEY.
 - This ZIP does not prove every release gate or a clean cPanel rehearsal passed.
 EOF
 
@@ -73,6 +77,10 @@ find "$STAGING_DIR" -type d \( -name '.git' -o -name 'node_modules' -o -name '.c
 test -f "$STAGING_DIR/index.html"
 test -f "$STAGING_DIR/.htaccess"
 test -f "$STAGING_DIR/api/_bootstrap.php"
+test -f "$STAGING_DIR/backend/artisan"
+test -f "$STAGING_DIR/backend/composer.json"
+test -f "$STAGING_DIR/backend/public/index.php"
+test -f "$STAGING_DIR/backend/vendor/autoload.php"
 test -f "$STAGING_DIR/scripts/migrate.php"
 test -f "$STAGING_DIR/storage/private/.htaccess"
 test -d "$STAGING_DIR/database/migrations"

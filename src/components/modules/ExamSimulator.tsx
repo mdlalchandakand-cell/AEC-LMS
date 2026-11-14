@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowLeft, ArrowRight, Award, CheckCircle2, Clock, Flag, ShieldCheck, XCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 
 interface Question { id: number; question: string; options: string[]; }
 interface Exam { id: number; title: string; course_title: string | null; total_marks: number; pass_marks: number; negative_mark_per_wrong: number; questions: Question[]; }
@@ -26,12 +27,20 @@ export const ExamSimulator: React.FC<Props> = ({ examId, onExit }) => {
     let active = true;
     const load = async () => {
       if (!examId) { setError('No examination was selected.'); setLoading(false); return; }
-      const detail = await apiClient.exams.getById(examId);
+      const detail = isLaravelApiEnabled
+        ? await laravelApiClient.exams.getById(Number(examId))
+        : await apiClient.exams.getById(examId);
       if (!detail.success || !detail.data) { if (active) setError(detail.error || 'Could not load exam.'); if (active) setLoading(false); return; }
-      const started = await apiClient.exams.start(examId);
+      const started = isLaravelApiEnabled
+        ? await laravelApiClient.exams.start(Number(examId))
+        : await apiClient.exams.start(examId);
       if (!started.success || !started.data?.attempt) { if (active) setError(started.error || 'Could not start exam.'); if (active) setLoading(false); return; }
       if (!active) return;
-      const raw = detail.data;
+      const startData = started.data as Record<string, any>;
+      const raw = isLaravelApiEnabled && startData.exam
+        ? startData.exam as Record<string, unknown>
+        : detail.data as Record<string, unknown>;
+      const attempt = startData.attempt as Record<string, unknown>;
       const rows = Array.isArray(raw.questions) ? raw.questions as Array<Record<string, unknown>> : [];
       setExam({
         id: Number(raw.id), title: String(raw.title || 'Examination'),
@@ -40,9 +49,9 @@ export const ExamSimulator: React.FC<Props> = ({ examId, onExit }) => {
         negative_mark_per_wrong: Number(raw.negative_mark_per_wrong || 0),
         questions: rows.map(row => ({ id: Number(row.id), question: String(row.question || ''), options: Array.isArray(row.options) ? row.options as string[] : [] })),
       });
-      setAttemptId(Number(started.data.attempt.id));
-      setAnswers(started.data.attempt.answers || {});
-      setSeconds(Number(started.data.attempt.remaining_seconds || 0));
+      setAttemptId(Number(attempt.id));
+      setAnswers(attempt.answers && typeof attempt.answers === 'object' ? attempt.answers as Record<string, number> : {});
+      setSeconds(Number(attempt.remaining_seconds || 0));
       setLoading(false);
     };
     void load();
@@ -53,7 +62,9 @@ export const ExamSimulator: React.FC<Props> = ({ examId, onExit }) => {
     if (!attemptId || submitting || result) return;
     setSubmitting(true);
     setError('');
-    const response = await apiClient.exams.submitAttempt(attemptId, answers);
+    const response = isLaravelApiEnabled
+      ? await laravelApiClient.exams.submit(attemptId, answers)
+      : await apiClient.exams.submitAttempt(attemptId, answers);
     if (!response.success || !response.data) {
       setError(response.error || 'Submission failed. Please try again.');
       setSubmitting(false);
@@ -77,7 +88,9 @@ export const ExamSimulator: React.FC<Props> = ({ examId, onExit }) => {
     const next = { ...answers, [String(questionId)]: option };
     setAnswers(next);
     saveQueue.current = saveQueue.current.then(async () => {
-      const saved = await apiClient.exams.saveAnswers(attemptId, next);
+      const saved = isLaravelApiEnabled
+        ? await laravelApiClient.exams.saveAnswers(attemptId, next)
+        : await apiClient.exams.saveAnswers(attemptId, next);
       if (!saved.success) setError(saved.error || 'Autosave failed; current answers will still be sent on submit.');
     }).catch(() => setError('Autosave failed; current answers will still be sent on submit.'));
   };

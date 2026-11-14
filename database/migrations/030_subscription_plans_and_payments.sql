@@ -1,0 +1,95 @@
+-- Subscription plans, student subscriptions and auditable manual/gateway-ready payments.
+CREATE TABLE IF NOT EXISTS subscription_plans (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  name_bn VARCHAR(120) NULL,
+  description TEXT NULL,
+  description_bn TEXT NULL,
+  price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  currency CHAR(3) NOT NULL DEFAULT 'BDT',
+  billing_period ENUM('one_time','monthly','yearly','custom') NOT NULL DEFAULT 'one_time',
+  duration_days SMALLINT UNSIGNED NOT NULL DEFAULT 30,
+  max_courses SMALLINT UNSIGNED NULL,
+  features JSON NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  created_by BIGINT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  deleted_at DATETIME NULL,
+  INDEX idx_subscription_plans_active (is_active, deleted_at, sort_order),
+  CONSTRAINT fk_subscription_plans_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  plan_id BIGINT UNSIGNED NOT NULL,
+  branch_id BIGINT UNSIGNED NULL,
+  status ENUM('pending','active','expired','cancelled','rejected') NOT NULL DEFAULT 'pending',
+  starts_at DATETIME NULL,
+  ends_at DATETIME NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'BDT',
+  payment_method VARCHAR(32) NOT NULL,
+  payment_reference VARCHAR(120) NULL,
+  auto_renew TINYINT(1) NOT NULL DEFAULT 0,
+  requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_by BIGINT UNSIGNED NULL,
+  reviewed_at DATETIME NULL,
+  cancelled_at DATETIME NULL,
+  review_note VARCHAR(500) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NULL,
+  INDEX idx_user_subscriptions_user_status (user_id, status, ends_at),
+  INDEX idx_user_subscriptions_branch_status (branch_id, status, requested_at),
+  CONSTRAINT fk_user_subscriptions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_user_subscriptions_plan FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_user_subscriptions_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_user_subscriptions_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS subscription_payments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  subscription_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'BDT',
+  payment_method VARCHAR(32) NOT NULL,
+  transaction_reference VARCHAR(120) NOT NULL,
+  sender_phone VARCHAR(32) NULL,
+  proof_reference VARCHAR(500) NULL,
+  status ENUM('pending','verified','rejected','refunded') NOT NULL DEFAULT 'pending',
+  submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_by BIGINT UNSIGNED NULL,
+  reviewed_at DATETIME NULL,
+  review_note VARCHAR(500) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_subscription_payment_reference (transaction_reference),
+  INDEX idx_subscription_payments_user_status (user_id, status, submitted_at),
+  CONSTRAINT fk_subscription_payments_subscription FOREIGN KEY (subscription_id) REFERENCES user_subscriptions(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_subscription_payments_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_subscription_payments_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
+('admin', 'subscriptions.manage', 1),
+('super_admin', 'subscriptions.manage', 1),
+('branch_manager', 'subscriptions.manage', 0),
+('teacher', 'subscriptions.manage', 0),
+('assistant_teacher', 'subscriptions.manage', 0),
+('accountant', 'subscriptions.manage', 0),
+('student', 'subscriptions.manage', 0),
+('guardian', 'subscriptions.manage', 0),
+('support_staff', 'subscriptions.manage', 0);
+
+INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
+('admin', 'subscriptions.review', 1),
+('super_admin', 'subscriptions.review', 1),
+('accountant', 'subscriptions.review', 1),
+('branch_manager', 'subscriptions.review', 0),
+('teacher', 'subscriptions.review', 0),
+('assistant_teacher', 'subscriptions.review', 0),
+('student', 'subscriptions.review', 0),
+('guardian', 'subscriptions.review', 0),
+('support_staff', 'subscriptions.review', 0);

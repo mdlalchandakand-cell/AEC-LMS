@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 import {
   CheckCircle2, Circle, ArrowLeft, Download, FileText,
   MessageSquare, BookOpen, Save, Clock
@@ -37,14 +38,90 @@ export const ClassroomViewer: React.FC<ClassroomViewerProps> = ({ courseId, onBa
 
   useEffect(() => {
     let active = true;
-    setLoadingContent(true);
-    setContentError('');
-    setServerCourse(null);
-    setCourseLessons([]);
-    setActiveLessonId(null);
-    setCanTrackProgress(false);
-    setProgressError('');
-    apiClient.courses.getById(courseId).then(async result => {
+    const mapLessons = (rawItems: Array<Record<string, unknown>>, progressByContentId = new Map<number, { is_completed: number; notes: string | null }>()): ClassroomLesson[] =>
+      rawItems.map((item, index) => {
+        const id = String(item.id);
+        const title = String(item.title || 'Lesson ' + (index + 1));
+        const mediaUrl = String(item.media_url || '');
+        const contentType = String(item.content_type || 'lesson');
+        const progress = progressByContentId.get(Number(id));
+        return {
+          id,
+          courseId,
+          moduleTitle: 'Course Curriculum',
+          title,
+          titleBn: title,
+          durationMinutes: Number(item.duration_minutes || 0),
+          videoUrl: mediaUrl,
+          isCompleted: item.is_completed !== undefined
+            ? Boolean(item.is_completed)
+            : Number(progress?.is_completed || 0) === 1,
+          notes: String(item.notes ?? progress?.notes ?? ''),
+          resources: contentType === 'file' && mediaUrl
+            ? [{ name: title, type: 'pdf' as const, size: 'Course resource', url: mediaUrl }]
+            : [],
+          contentType,
+          body: String(item.body || ''),
+          mediaUrl,
+        };
+      });
+
+    const loadCourse = async () => {
+      setLoadingContent(true);
+      setContentError('');
+      setServerCourse(null);
+      setCourseLessons([]);
+      setActiveLessonId(null);
+      setCanTrackProgress(false);
+      setProgressError('');
+
+      if (isLaravelApiEnabled) {
+        const [courseResult, contentsResult] = await Promise.all([
+          apiClient.courses.getById(courseId),
+          laravelApiClient.courses.contents(Number(courseId)),
+        ]);
+        if (!active) return;
+        if (courseResult.success && courseResult.data) setServerCourse(courseResult.data);
+
+        const contentData = contentsResult.data as { items?: unknown[] } | undefined;
+        if (contentsResult.success && Array.isArray(contentData?.items)) {
+          const mapped = mapLessons(contentData.items as Array<Record<string, unknown>>);
+          setCanTrackProgress(true);
+          setCourseLessons(mapped);
+          setActiveLessonId(mapped[0]?.id || null);
+          setNoteContent(mapped[0]?.notes || '');
+          return;
+        }
+
+        // If Laravel access is not enabled for this student yet, preserve the
+        // existing legacy preview path rather than exposing protected lessons.
+        if (courseResult.success && courseResult.data) {
+          const mayTrackProgress = Boolean(courseResult.data.can_track_progress);
+          setCanTrackProgress(mayTrackProgress);
+          let progressByContentId = new Map<number, { is_completed: number; notes: string | null }>();
+          if (isAuthenticated && mayTrackProgress) {
+            const progressResult = await apiClient.content.getProgress(courseId);
+            if (progressResult.success && Array.isArray(progressResult.data)) {
+              progressByContentId = new Map(progressResult.data.map(entry => [
+                Number(entry.content_item_id),
+                { is_completed: Number(entry.is_completed), notes: entry.notes },
+              ]));
+            }
+            if (!active) return;
+          }
+          const rawItems = Array.isArray(courseResult.data.content) ? courseResult.data.content as Array<Record<string, unknown>> : [];
+          const mapped = mapLessons(rawItems, progressByContentId);
+          setCourseLessons(mapped);
+          setActiveLessonId(mapped[0]?.id || null);
+          setNoteContent(mapped[0]?.notes || '');
+          return;
+        }
+
+        setContentError(contentsResult.error || courseResult.error || 'Course content could not be loaded. Please check your enrollment or preview access.');
+        return;
+      }
+
+      const result = await apiClient.courses.getById(courseId);
       if (!active) return;
       if (!result.success || !result.data) {
         setContentError(result.error || 'Course content could not be loaded. Please check your enrollment or preview access.');
@@ -65,34 +142,13 @@ export const ClassroomViewer: React.FC<ClassroomViewerProps> = ({ courseId, onBa
         if (!active) return;
       }
       const rawItems = Array.isArray(result.data.content) ? result.data.content as Array<Record<string, unknown>> : [];
-      const mapped: ClassroomLesson[] = rawItems.map((item, index) => {
-        const id = String(item.id);
-        const title = String(item.title || `Lesson ${index + 1}`);
-        const mediaUrl = String(item.media_url || '');
-        const contentType = String(item.content_type || 'lesson');
-        const progress = progressByContentId.get(Number(id));
-        return {
-          id,
-          courseId,
-          moduleTitle: 'Course Curriculum',
-          title,
-          titleBn: title,
-          durationMinutes: Number(item.duration_minutes || 0),
-          videoUrl: mediaUrl,
-          isCompleted: Number(progress?.is_completed || 0) === 1,
-          notes: String(progress?.notes || ''),
-          resources: contentType === 'file' && mediaUrl
-            ? [{ name: title, type: 'pdf' as const, size: 'Course resource', url: mediaUrl }]
-            : [],
-          contentType,
-          body: String(item.body || ''),
-          mediaUrl,
-        };
-      });
+      const mapped = mapLessons(rawItems, progressByContentId);
       setCourseLessons(mapped);
       setActiveLessonId(mapped[0]?.id || null);
       setNoteContent(mapped[0]?.notes || '');
-    }).catch(error => {
+    };
+
+    void loadCourse().catch(error => {
       if (active) setContentError(error instanceof Error ? error.message : 'Course content could not be loaded.');
     }).finally(() => {
       if (active) setLoadingContent(false);
@@ -111,12 +167,15 @@ export const ClassroomViewer: React.FC<ClassroomViewerProps> = ({ courseId, onBa
     if (!activeLesson || !canTrackProgress || savingProgress) return;
     setSavingProgress(true);
     setProgressError('');
-    const result = await apiClient.content.saveProgress({
+    const progressPayload = {
       course_id: Number(courseId),
       content_item_id: Number(activeLesson.id),
       is_completed: Boolean(activeLesson.isCompleted),
       notes: noteContent,
-    });
+    };
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.courses.saveProgress(progressPayload)
+      : await apiClient.content.saveProgress(progressPayload);
     if (!result.success) {
       setProgressError(result.error || 'Could not save lesson notes.');
       setSavingProgress(false);
@@ -133,12 +192,15 @@ export const ClassroomViewer: React.FC<ClassroomViewerProps> = ({ courseId, onBa
     const nextCompleted = !activeLesson.isCompleted;
     setSavingProgress(true);
     setProgressError('');
-    const result = await apiClient.content.saveProgress({
+    const progressPayload = {
       course_id: Number(courseId),
       content_item_id: Number(activeLesson.id),
       is_completed: nextCompleted,
       notes: noteContent,
-    });
+    };
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.courses.saveProgress(progressPayload)
+      : await apiClient.content.saveProgress(progressPayload);
     if (!result.success) {
       setProgressError(result.error || 'Could not update lesson completion.');
       setSavingProgress(false);

@@ -4,6 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
   push:
+    branches: [ 'feature/**' ]
     tags:
       - 'v*'
 permissions:
@@ -29,6 +30,20 @@ jobs:
         run: |
           bun run lint
           bun run build
+      - name: Set up PHP and install Laravel production dependencies
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring, bcmath, curl, dom, fileinfo, intl, xml, zip
+          coverage: none
+      - name: Resolve and install Laravel production dependencies
+        working-directory: backend
+        run: |
+          mkdir -p bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs storage/app/private
+          if [ ! -f composer.lock ]; then
+            composer update --no-dev --no-interaction --prefer-dist --no-progress
+          fi
+          composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
       - name: Validate packaging script syntax
         run: bash -n scripts/package-cpanel-release.sh
       - name: Assemble and inspect cPanel package
@@ -38,6 +53,10 @@ jobs:
           unzip -q "$RUNNER_TEMP/release/aloms-english-center-cpanel.zip" -d "$RUNNER_TEMP/package-check"
           test -f "$RUNNER_TEMP/package-check/index.html"
           test -f "$RUNNER_TEMP/package-check/api/_bootstrap.php"
+          test -f "$RUNNER_TEMP/package-check/backend/artisan"
+          test -f "$RUNNER_TEMP/package-check/backend/public/index.php"
+          test -f "$RUNNER_TEMP/package-check/backend/vendor/autoload.php"
+          test -f "$RUNNER_TEMP/package-check/backend/composer.lock"
           test -f "$RUNNER_TEMP/package-check/scripts/migrate.php"
           test -f "$RUNNER_TEMP/package-check/scripts/create-admin.php"
           ! find "$RUNNER_TEMP/package-check/scripts" -maxdepth 1 -type f -name 'test-*' | grep -q .

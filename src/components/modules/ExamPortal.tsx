@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Award, BookOpen, Clock, Play, RefreshCw } from 'lucide-react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 
 interface ExamSummary {
   id: number;
@@ -52,12 +53,22 @@ export const ExamPortal: React.FC<ExamPortalProps> = ({ onStartExam, showResults
       return;
     }
     if (showResults) {
-      const result = await apiClient.exams.getAttempts();
-      if (result.success && Array.isArray(result.data)) setAttempts(result.data as unknown as ExamAttempt[]);
+      const result = isLaravelApiEnabled
+        ? await laravelApiClient.exams.attempts()
+        : await apiClient.exams.getAttempts();
+      const items = isLaravelApiEnabled
+        ? (result.data as { items?: unknown[] } | undefined)?.items
+        : result.data;
+      if (result.success && Array.isArray(items)) setAttempts(items as ExamAttempt[]);
       else setError(result.error || 'Could not load exam results.');
     } else {
-      const result = await apiClient.exams.getAll();
-      if (result.success && Array.isArray(result.data)) setExams(result.data as unknown as ExamSummary[]);
+      const result = isLaravelApiEnabled
+        ? await laravelApiClient.exams.list()
+        : await apiClient.exams.getAll();
+      const items = isLaravelApiEnabled
+        ? (result.data as { items?: unknown[] } | undefined)?.items
+        : result.data;
+      if (result.success && Array.isArray(items)) setExams(items as ExamSummary[]);
       else setError(result.error || 'Could not load available examinations.');
     }
     setLoading(false);

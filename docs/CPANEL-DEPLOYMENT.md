@@ -108,7 +108,15 @@ Before inviting students:
 
 Use a disposable test student and remove test records before opening the site publicly.
 
-## 8. Current release limitations
+## 8. Laravel 12 backend foundation
+
+The repository now includes a separate Laravel 12 application in `backend/`. The current React/Vite site and legacy PHP API remain the active application path while features are migrated safely. The Laravel foundation currently provides a framework health endpoint only; do not point the live frontend at it as a replacement for existing endpoints.
+
+The cPanel release ZIP includes the Laravel application and its production Composer dependencies. For a safe deployment, configure an API subdomain (recommended) with its document root set to `backend/public`, or use a dedicated document root outside the public website. Never set the document root to the repository root or expose `backend/` source files. Configure a separate `backend/.env` with a unique Laravel `APP_KEY`, database connection and production settings. The legacy `AEC_DB_*` variables and Laravel `DB_*` variables are separate configurations until the data-access migration is completed.
+
+The first Laravel endpoint is `GET /api/v1/health`. Before moving any existing API route, add Laravel controller/service parity, permission and tenant-scope tests, verify response compatibility, and perform a rollback rehearsal. Do not migrate or run Laravel migrations against the existing LMS database until a reviewed schema-compatibility plan exists.
+
+## 9. Current release limitations
 
 This guide does not close the remaining production gates. Public admission remains an inquiry workflow, not self-service registration or payment. Student registration, email verification and account recovery were merged and CI-validated in PR #42; production email delivery and the account lifecycle still require a real cPanel smoke test. Live payment-provider callbacks and automated refunds, full branch isolation, cPanel verification of the new private course-media storage, other operations modules, backup/restore, browser E2E/security checks and a clean cPanel rehearsal remain tracked in RELEASE-READINESS-AUDIT.md. Premium e-book PDFs use the private storage directory and entitlement-checked download API, but must be smoke-tested on the target host.
 

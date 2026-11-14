@@ -44,6 +44,7 @@ class ContentManagementApiTest extends TestCase
         });
         DB::table('branches')->insert([
             ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
         ]);
 
         Schema::create('courses', function (Blueprint $table): void {
@@ -280,6 +281,33 @@ class ContentManagementApiTest extends TestCase
             'status' => 'restored',
             'restored_by' => $teacherId,
         ]);
+    }
+
+    public function test_teacher_lists_do_not_expose_owned_content_linked_to_another_branch(): void
+    {
+        $teacherId = $this->createUser('teacher@example.test', 'teacher', 10);
+        $courseId = (int) DB::table('courses')->insertGetId([
+            'branch_id' => 20,
+            'title' => 'Branch 20 Course',
+            'slug' => 'branch-20-course',
+            'created_by' => $teacherId,
+        ]);
+        $contentId = $this->createContent($teacherId, 'Cross Branch Content');
+        DB::table('course_content')->insert([
+            'course_id' => $courseId,
+            'content_item_id' => $contentId,
+            'sort_order' => 1,
+            'is_preview' => 0,
+            'created_at' => now(),
+        ]);
+        $this->login('teacher@example.test');
+
+        $this->getJson('/api/v1/content-management')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.items');
+        $this->getJson('/api/v1/course-management')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.items');
     }
 
     public function test_content_rejects_non_https_media_urls(): void

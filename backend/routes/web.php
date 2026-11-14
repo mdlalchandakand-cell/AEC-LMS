@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CourseProgressController;
+use App\Http\Controllers\Api\V1\ContentManagementController;
 use App\Http\Controllers\Api\V1\CourseManagementController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\EnrollmentController;
@@ -39,6 +40,20 @@ Route::prefix('api/v1/enrollments')
         Route::get('/', [EnrollmentController::class, 'index'])->name('index');
         Route::post('/', [EnrollmentController::class, 'store'])->name('store');
         Route::patch('/{enrollment}', [EnrollmentController::class, 'update'])->whereNumber('enrollment')->name('update');
+    });
+
+Route::prefix('api/v1/content-management')
+    ->name('api.v1.content-management.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [ContentManagementController::class, 'index'])->name('index');
+        Route::post('/', [ContentManagementController::class, 'store'])->name('store');
+        Route::post('/attach', [ContentManagementController::class, 'attach'])->name('attach');
+        Route::post('/detach', [ContentManagementController::class, 'detach'])->name('detach');
+        Route::get('/{content}/links', [ContentManagementController::class, 'links'])->whereNumber('content')->name('links');
+        Route::patch('/{content}', [ContentManagementController::class, 'update'])->whereNumber('content')->name('update');
+        Route::delete('/{content}', [ContentManagementController::class, 'destroy'])->whereNumber('content')->name('destroy');
+        Route::post('/{content}/restore', [ContentManagementController::class, 'restore'])->whereNumber('content')->name('restore');
     });
 
 Route::prefix('api/v1/course-management')

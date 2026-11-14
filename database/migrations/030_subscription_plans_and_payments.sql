@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS subscription_payments (
 
 INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
 ('admin', 'subscriptions.manage', 1),
+('super_admin', 'subscriptions.manage', 1),
 ('branch_manager', 'subscriptions.manage', 0),
 ('teacher', 'subscriptions.manage', 0),
 ('assistant_teacher', 'subscriptions.manage', 0),
@@ -81,3 +82,14 @@ INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
 ('student', 'subscriptions.manage', 0),
 ('guardian', 'subscriptions.manage', 0),
 ('support_staff', 'subscriptions.manage', 0);
+
+INSERT IGNORE INTO role_permissions (role, permission_key, allowed) VALUES
+('admin', 'subscriptions.review', 1),
+('super_admin', 'subscriptions.review', 1),
+('accountant', 'subscriptions.review', 1),
+('branch_manager', 'subscriptions.review', 0),
+('teacher', 'subscriptions.review', 0),
+('assistant_teacher', 'subscriptions.review', 0),
+('student', 'subscriptions.review', 0),
+('guardian', 'subscriptions.review', 0),
+('support_staff', 'subscriptions.review', 0);

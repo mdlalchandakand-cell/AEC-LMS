@@ -245,6 +245,49 @@ class RecycleBinController extends Controller
         return response()->json(['success' => true, 'message' => 'Item permanently deleted.', 'data' => $result]);
     }
 
+    public function purgeExpired(Request $request): JsonResponse
+    {
+        $actor = $request->user();
+        if (!LmsPermission::allows($actor, 'recycle_bin.purge')) {
+            return $this->forbidden('You do not have permission to permanently delete recycle-bin items.');
+        }
+
+        $items = DB::table('recycle_bin_items')
+            ->where('status', 'active')
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<=', now())
+            ->orderBy('expires_at')
+            ->orderBy('id')
+            ->limit(500)
+            ->pluck('id');
+
+        $purged = 0;
+        $blocked = [];
+        foreach ($items as $itemId) {
+            $result = $this->permanentlyDelete($request, (int) $itemId);
+            if ($result->getStatusCode() >= 200 && $result->getStatusCode() < 300) {
+                $purged++;
+                continue;
+            }
+
+            $payload = $result->getData(true);
+            $blocked[] = [
+                'id' => (int) $itemId,
+                'reason' => (string) ($payload['message'] ?? 'Item was retained.'),
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Expired recycle-bin items processed.',
+            'data' => [
+                'purged' => $purged,
+                'blocked' => $blocked,
+                'checked' => $items->count(),
+            ],
+        ]);
+    }
+
     private function entityTable(string $type): ?string
     {
         return match ($type) {

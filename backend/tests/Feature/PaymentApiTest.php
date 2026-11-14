@@ -547,6 +547,36 @@ class PaymentApiTest extends TestCase
         $this->assertSame(0, DB::table('ledger_transactions')->where('payment_id', $paymentId)->count());
     }
 
+    public function test_payment_rejection_requires_a_non_blank_reason(): void
+    {
+        $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'pending', 'AEC-REJECT-BLANK-001');
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/reject', [
+            'reason' => '   ',
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseHas('course_payments', [
+            'id' => $paymentId,
+            'status' => 'pending',
+        ]);
+    }
+
     public function test_branch_manager_cannot_review_payment_from_another_branch(): void
     {
         $managerId = $this->createUser('manager@example.test', 'branch_manager', 10);

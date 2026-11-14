@@ -73,12 +73,31 @@ class SubscriptionController extends Controller
             return $this->forbidden('Student account required.');
         }
 
+        $now = now('Asia/Dhaka')->format('Y-m-d H:i:s');
+        $expiredIds = DB::table('user_subscriptions')
+            ->where('user_id', $student->id)
+            ->where('status', 'active')
+            ->whereNotNull('ends_at')
+            ->where('ends_at', '<=', $now)
+            ->pluck('id');
+        if ($expiredIds->isNotEmpty()) {
+            DB::table('user_subscriptions')->whereIn('id', $expiredIds)->update(['status' => 'expired', 'updated_at' => now()]);
+            DB::table('user_subscription_courses')
+                ->whereIn('subscription_id', $expiredIds)
+                ->where('status', 'active')
+                ->update(['status' => 'expired', 'updated_at' => now()]);
+        }
+
         $subscription = DB::table('user_subscriptions as subscriptions')
             ->join('subscription_plans as plans', 'plans.id', '=', 'subscriptions.plan_id')
             ->where('subscriptions.user_id', $student->id)
             ->where('subscriptions.status', 'active')
-            ->where(function ($window): void {
-                $window->whereNull('subscriptions.ends_at')
+            ->where(function ($starts): void {
+                $starts->whereNull('subscriptions.starts_at')
+                    ->orWhere('subscriptions.starts_at', '<=', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+            })
+            ->where(function ($ends): void {
+                $ends->whereNull('subscriptions.ends_at')
                     ->orWhere('subscriptions.ends_at', '>', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
             })
             ->orderByDesc('subscriptions.ends_at')
@@ -101,6 +120,11 @@ class SubscriptionController extends Controller
             ]);
         }
 
+        $selectedCourses = DB::table('user_subscription_courses')
+            ->where('subscription_id', $subscription->id)
+            ->where('status', 'active')
+            ->count();
+
         return response()->json([
             'success' => true,
             'message' => 'Active subscription found.',
@@ -113,11 +137,145 @@ class SubscriptionController extends Controller
                     'name_bn' => $subscription->name_bn,
                     'starts_at' => $subscription->starts_at,
                     'ends_at' => $subscription->ends_at,
-                    'max_courses' => $subscription->max_courses,
+                    'max_courses' => $subscription->max_courses === null ? null : (int) $subscription->max_courses,
+                    'selected_courses' => $selectedCourses,
+                    'remaining_course_seats' => $subscription->max_courses === null
+                        ? null
+                        : max(0, (int) $subscription->max_courses - $selectedCourses),
                     'features' => $subscription->features ? (json_decode((string) $subscription->features, true) ?: []) : [],
                 ],
             ],
         ]);
+    }
+
+    public function myCourses(Request $request): JsonResponse
+    {
+        $student = $request->user();
+        if ($student->role !== 'student') {
+            return $this->forbidden('Student account required.');
+        }
+
+        $items = DB::table('user_subscription_courses as selected')
+            ->join('user_subscriptions as subscriptions', 'subscriptions.id', '=', 'selected.subscription_id')
+            ->join('courses', 'courses.id', '=', 'selected.course_id')
+            ->where('selected.user_id', $student->id)
+            ->where('selected.status', 'active')
+            ->where('subscriptions.status', 'active')
+            ->whereNull('courses.deleted_at')
+            ->where('courses.status', 'published')
+            ->where(function ($starts): void {
+                $starts->whereNull('subscriptions.starts_at')
+                    ->orWhere('subscriptions.starts_at', '<=', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+            })
+            ->where(function ($ends): void {
+                $ends->whereNull('subscriptions.ends_at')
+                    ->orWhere('subscriptions.ends_at', '>', now('Asia/Dhaka')->format('Y-m-d H:i:s'));
+            })
+            ->orderByDesc('selected.selected_at')
+            ->get([
+                'selected.id',
+                'selected.subscription_id',
+                'selected.course_id',
+                'selected.branch_id',
+                'selected.selected_at',
+                'courses.title',
+                'courses.slug',
+                'courses.thumbnail',
+                'subscriptions.ends_at as subscription_ends_at',
+            ]);
+
+        return response()->json(['success' => true, 'message' => 'Your subscription courses loaded.', 'data' => ['items' => $items]]);
+    }
+
+    public function selectCourse(Request $request, int $subscription): JsonResponse
+    {
+        $student = $request->user();
+        if ($student->role !== 'student') {
+            return $this->forbidden('Student account required.');
+        }
+
+        $validated = $request->validate(['course_id' => ['required', 'integer', 'min:1']]);
+        $result = DB::transaction(function () use ($request, $student, $subscription, $validated): array|JsonResponse {
+            $row = DB::table('user_subscriptions')
+                ->where('id', $subscription)
+                ->where('user_id', $student->id)
+                ->where('status', 'active')
+                ->lockForUpdate()
+                ->first();
+            if (!$row || ($row->starts_at !== null && $row->starts_at > now('Asia/Dhaka')->format('Y-m-d H:i:s'))
+                || ($row->ends_at !== null && $row->ends_at <= now('Asia/Dhaka')->format('Y-m-d H:i:s'))) {
+                return response()->json(['success' => false, 'message' => 'An active subscription is required to select courses.', 'error' => 'Forbidden.'], 403);
+            }
+
+            $course = DB::table('courses')
+                ->where('id', $validated['course_id'])
+                ->where('status', 'published')
+                ->whereNull('deleted_at')
+                ->lockForUpdate()
+                ->first(['id', 'branch_id', 'title']);
+            if (!$course) {
+                return response()->json(['success' => false, 'message' => 'Published course not found.', 'error' => 'Not found.'], 404);
+            }
+            if ($student->branch_id !== null && $course->branch_id !== null
+                && (int) $student->branch_id !== (int) $course->branch_id) {
+                return response()->json(['success' => false, 'message' => 'Course is outside your assigned branch.', 'error' => 'Forbidden.'], 403);
+            }
+
+            $existing = DB::table('user_subscription_courses')
+                ->where('subscription_id', $subscription)
+                ->where('course_id', $course->id)
+                ->lockForUpdate()
+                ->first();
+            if ($existing && $existing->status === 'active') {
+                return response()->json(['success' => false, 'message' => 'This course is already selected.', 'error' => 'Conflict.'], 409);
+            }
+
+            $plan = DB::table('subscription_plans')->where('id', $row->plan_id)->first(['max_courses']);
+            if (!$plan) {
+                return response()->json(['success' => false, 'message' => 'Subscription plan not found.', 'error' => 'Not found.'], 404);
+            }
+            $selectedCount = DB::table('user_subscription_courses')
+                ->where('subscription_id', $subscription)
+                ->where('status', 'active')
+                ->count();
+            if ($plan->max_courses !== null && $selectedCount >= (int) $plan->max_courses) {
+                return response()->json(['success' => false, 'message' => 'Your subscription has reached its course limit.', 'error' => 'Conflict.'], 409);
+            }
+
+            $branchId = $course->branch_id !== null ? (int) $course->branch_id : ($student->branch_id !== null ? (int) $student->branch_id : null);
+            if ($existing) {
+                DB::table('user_subscription_courses')->where('id', $existing->id)->update([
+                    'branch_id' => $branchId,
+                    'status' => 'active',
+                    'selected_at' => now(),
+                    'updated_at' => now(),
+                ]);
+                $selectionId = (int) $existing->id;
+            } else {
+                $selectionId = (int) DB::table('user_subscription_courses')->insertGetId([
+                    'subscription_id' => $subscription,
+                    'user_id' => (int) $student->id,
+                    'course_id' => (int) $course->id,
+                    'branch_id' => $branchId,
+                    'status' => 'active',
+                    'selected_at' => now(),
+                    'created_at' => now(),
+                ]);
+            }
+
+            $this->audit($request, (int) $student->id, 'subscription.course_selected', $selectionId, [
+                'subscription_id' => $subscription,
+                'course_id' => (int) $course->id,
+            ]);
+
+            return ['id' => $selectionId, 'subscription_id' => $subscription, 'course_id' => (int) $course->id, 'course_title' => $course->title];
+        });
+
+        if ($result instanceof JsonResponse) {
+            return $result;
+        }
+
+        return response()->json(['success' => true, 'message' => 'Course added to your subscription.', 'data' => $result], 201);
     }
 
     public function store(Request $request): JsonResponse
@@ -432,6 +590,10 @@ class SubscriptionController extends Controller
                 'cancelled_at' => now(),
                 'updated_at' => now(),
             ]);
+            DB::table('user_subscription_courses')
+                ->where('subscription_id', $subscription)
+                ->where('status', 'active')
+                ->update(['status' => 'cancelled', 'updated_at' => now()]);
             DB::table('subscription_payments')
                 ->where('subscription_id', $subscription)
                 ->where('status', 'pending')

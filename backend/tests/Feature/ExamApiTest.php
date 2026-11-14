@@ -69,6 +69,24 @@ class ExamApiTest extends TestCase
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('course_id');
             $table->string('status', 20)->default('pending');
+            $table->dateTime('ends_at')->nullable();
+        });
+
+        Schema::create('user_subscriptions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('status', 20);
+            $table->dateTime('starts_at')->nullable();
+            $table->dateTime('ends_at')->nullable();
+        });
+
+        Schema::create('user_subscription_courses', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('subscription_id');
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->string('status', 20);
+            $table->unsignedBigInteger('branch_id')->nullable();
         });
 
         Schema::create('exams', function (Blueprint $table): void {

@@ -34,6 +34,13 @@ class PaymentApiTest extends TestCase
             $table->unique(['role', 'permission_key']);
         });
 
+        Schema::create('branches', function (Blueprint $table): void {
+            $table->id();
+            $table->string('code', 32);
+            $table->string('name', 160);
+            $table->boolean('is_active')->default(true);
+        });
+
         Schema::create('courses', function (Blueprint $table): void {
             $table->id();
             $table->string('title', 180);

@@ -50,7 +50,7 @@ function aec_certificate_select(): string
 if ($action === 'verify') {
     aec_method(['GET']);
     $number = strtoupper(trim((string)($_GET['cert_no'] ?? '')));
-    if ($number === '' || strlen($number) > 60 || !preg_match('/^AEC-CERT-\\d{4}-[A-F0-9]{32}$/', $number)) {
+    if ($number === '' || strlen($number) > 60 || !preg_match('/^AEC-CERT-\d{4}-[A-F0-9]{32}$/', $number)) {
         aec_fail('Enter a valid certificate number.', 422);
     }
     $stmt = $db->prepare(
@@ -99,7 +99,8 @@ if ($action === 'students') {
     if ($search !== '') {
         $sql .= ' AND (name LIKE ? OR email LIKE ?)';
         $term = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $search) . '%';
-        $params = [$term, $term];
+        $params[] = $term;
+        $params[] = $term;
     }
     $sql .= ' ORDER BY name ASC, id ASC LIMIT 100';
     $stmt = $db->prepare($sql);
@@ -224,7 +225,7 @@ if ($action === 'issue') {
         aec_certificate_audit($db, $actor, 'certificate.issued', $certificateId, [
             'certificate_number' => $certificateNumber, 'student_user_id' => (int)$student['id'], 'course_id' => (int)$course['id'],
         ]);
-        aec_notify_user($db, (int)$student['id'], (int)$actor['id'], 'Certificate issued', 'Your certificate for ' . $course['title'] . ' is ready. Certificate number: ' . $certificateNumber . '.', 'success', 'certificates', 'সার্টিফিকেট ইস্যু হয়েছে', $course['title'] . ' কোর্সের সার্টিফিকেট প্রস্তুত। সার্টিফিকেট নম্বর: ' . $certificateNumber . '।');
+        aec_notify_user($db, (int)$student['id'], (int)$actor['id'], 'Certificate issued', 'Your certificate for ' . $course['title'] . ' is ready. Certificate number: ' . $certificateNumber . '.', 'success', 'certificates');
         $db->commit();
         aec_ok(['id' => $certificateId, 'certificate_number' => $certificateNumber], 'Certificate issued.', 201);
     } catch (Throwable $error) {
@@ -257,7 +258,7 @@ if ($action === 'revoke') {
         aec_certificate_audit($db, $actor, 'certificate.revoked', (int)$id, [
             'certificate_number' => $certificate['certificate_number'], 'reason' => $reason,
         ]);
-        aec_notify_user($db, (int)$certificate['student_user_id'], (int)$actor['id'], 'Certificate revoked', 'Your certificate for ' . $certificate['course_title_snapshot'] . ' has been revoked. Reason: ' . $reason, 'warning', 'certificates', 'সার্টিফিকেট বাতিল হয়েছে', $certificate['course_title_snapshot'] . ' কোর্সের সার্টিফিকেট বাতিল হয়েছে। কারণ: ' . $reason);
+        aec_notify_user($db, (int)$certificate['student_user_id'], (int)$actor['id'], 'Certificate revoked', 'Your certificate for ' . $certificate['course_title_snapshot'] . ' has been revoked. Reason: ' . $reason . '.', 'warning', 'certificates');
         $db->commit();
         aec_ok(['id' => (int)$id, 'status' => 'revoked'], 'Certificate revoked.');
     } catch (Throwable $error) {

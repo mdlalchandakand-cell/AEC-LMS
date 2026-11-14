@@ -947,7 +947,7 @@ try {
     check(in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatches['data'] ?? []), true), 'Student could not see their assigned batch.');
     $studentRoutines = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student views own batch routine');
     check(count(array_filter($studentRoutines['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Student could not see their assigned routine.');
-    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes a batch');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch');
     $studentBatchesAfterDelete = expect_status(api_request($base, '/api/batches.php?action=list', 'GET', null, $notificationStudentCookie), 200, 'Student batch list hides deleted batches');
     check(!in_array($batchId, array_map(static fn(array $row): int => (int)$row['id'], $studentBatchesAfterDelete['data'] ?? []), true), 'Deleted batch remained visible to students.');
     $recycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Administrator lists recycle-bin records');
@@ -956,11 +956,11 @@ try {
     $batchRecycleItemId = (int)$batchRecycleRows[0]['id'];
     $branchRecycleItems = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $branchManagerCookie), 200, 'Branch manager lists only their recycle-bin items');
     check(count(array_filter($branchRecycleItems['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $batchRecycleItemId)) === 1, 'Branch manager could not see the batch from their own branch.');
-    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Administrator cannot permanently delete before the retention period');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Administrator cannot permanently delete before the retention period');
     expect_status(api_request($base, '/api/recycle_bin.php?action=purge_expired', 'POST', [], $branchManagerCookie, $branchManagerCsrf), 403, 'Branch manager cannot purge recycle-bin records');
     $db->prepare('UPDATE recycle_bin_items SET expires_at = DATE_SUB(NOW(), INTERVAL 1 DAY) WHERE id = ?')->execute([$batchRecycleItemId]);
     expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 409, 'Expired recycle-bin item cannot be restored');
-    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 409, 'Batch with enrollment/routine history is retained after expiry');
+    expect_status(api_request($base, '/api/recycle_bin.php?action=permanent_delete&id=' . $batchRecycleItemId, 'POST', [], $cookie, $csrf), 409, 'Batch with enrollment/routine history is retained after expiry');
     $blockedRecycleItem = $db->prepare('SELECT purge_error FROM recycle_bin_items WHERE id = ?');
     $blockedRecycleItem->execute([$batchRecycleItemId]);
     check((string)$blockedRecycleItem->fetchColumn() !== '', 'Blocked permanent deletion did not record the dependency reason.');
@@ -968,8 +968,8 @@ try {
     expect_status(api_request($base, '/api/recycle_bin.php?action=restore&id=' . $batchRecycleItemId, 'POST', [], $branchManagerCookie, $branchManagerCsrf), 200, 'Branch manager restores an item from the assigned branch');
     $studentRoutinesAfterRestore = expect_status(api_request($base, '/api/batches.php?action=routines', 'GET', null, $notificationStudentCookie), 200, 'Student can view the routine after batch restoration');
     check(count(array_filter($studentRoutinesAfterRestore['data'] ?? [], static fn(array $row): bool => (int)$row['id'] === $routineId)) === 1, 'Restoring a batch did not restore its routine visibility.');
-    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Admin soft-deletes a batch again for direct-restore reconciliation');
-    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $commissionAdminCookie, $commissionAdminCsrf), 200, 'Direct batch restore endpoint succeeds');
+    expect_status(api_request($base, '/api/batches.php?action=delete&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Admin soft-deletes a batch again for direct-restore reconciliation');
+    expect_status(api_request($base, '/api/batches.php?action=restore&id=' . $batchId, 'POST', [], $cookie, $csrf), 200, 'Direct batch restore endpoint succeeds');
     $activeBatchRecycle = expect_status(api_request($base, '/api/recycle_bin.php?action=list', 'GET', null, $cookie), 200, 'Recycle-bin list refreshes after direct batch restore');
     check(count(array_filter($activeBatchRecycle['data'] ?? [], static fn(array $row): bool => ($row['entity_type'] ?? '') === 'batch' && (int)$row['entity_id'] === $batchId)) === 0, 'Direct batch restore did not reconcile its recycle-bin record.');
     $batchUpdateBase = [

@@ -126,7 +126,9 @@ export const RecycleBinManager: React.FC = () => {
     if (!window.confirm(isBn ? 'শুধু ৩০ দিনের মেয়াদ শেষ হওয়া আইটেমগুলো মুছবেন? লিঙ্কযুক্ত রেকর্ড রাখা হবে।' : 'Purge only items past the 30-day retention period? Items with linked history will be kept.')) return;
     setBusy(true); setError(''); setSuccess('');
     try {
-      const response = await apiClient.recycleBin.purgeExpired();
+      const response = isLaravelApiEnabled
+        ? await laravelApiClient.recycleBin.purgeExpired()
+        : await apiClient.recycleBin.purgeExpired();
       if (!response.success || !response.data) throw new Error(response.error || response.message || 'Expired items could not be purged.');
       const { purged, blocked: blockedItems } = response.data;
       const blocked = Array.isArray(blockedItems) ? blockedItems.length : 0;
@@ -160,7 +162,7 @@ export const RecycleBinManager: React.FC = () => {
           <button onClick={() => void load()} disabled={busy || loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> {isBn ? 'রিফ্রেশ' : 'Refresh'}
           </button>
-          {canPurge && !isLaravelApiEnabled && (
+          {canPurge && (
             <button onClick={() => void purgeExpired()} disabled={busy || expiredCount === 0} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
               <Trash2 className="h-4 w-4" /> {isBn ? 'মেয়াদোত্তীর্ণ আইটেম পরিষ্কার' : 'Purge expired items'} ({expiredCount})
             </button>

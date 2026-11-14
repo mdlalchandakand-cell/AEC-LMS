@@ -134,18 +134,18 @@ class CourseManagementController extends Controller
 
         try {
             DB::table('courses')->where('id', $course)->update([
-                'category_id' => $validated['category_id'] ?? null,
+                'category_id' => array_key_exists('category_id', $validated) ? ($validated['category_id'] ?? null) : $existing->category_id,
                 'branch_id' => $branchId,
                 'title' => trim($validated['title']),
                 'slug' => strtolower(trim($validated['slug'])),
-                'subtitle' => trim((string) ($validated['subtitle'] ?? '')),
-                'description' => (string) ($validated['description'] ?? ''),
+                'subtitle' => array_key_exists('subtitle', $validated) ? trim((string) ($validated['subtitle'] ?? '')) : $existing->subtitle,
+                'description' => array_key_exists('description', $validated) ? (string) ($validated['description'] ?? '') : $existing->description,
                 'price' => $this->decimal($validated['price']),
-                'original_price' => $this->decimal($validated['original_price'] ?? '0'),
-                'level' => trim((string) ($validated['level'] ?? 'All Levels')),
-                'duration_weeks' => (int) ($validated['duration_weeks'] ?? 0),
-                'thumbnail' => trim((string) ($validated['thumbnail'] ?? '')),
-                'status' => $validated['status'] ?? 'draft',
+                'original_price' => $this->decimal($validated['original_price'] ?? $existing->original_price ?? '0'),
+                'level' => array_key_exists('level', $validated) ? trim((string) ($validated['level'] ?? '')) : $existing->level,
+                'duration_weeks' => (int) ($validated['duration_weeks'] ?? $existing->duration_weeks),
+                'thumbnail' => array_key_exists('thumbnail', $validated) ? trim((string) ($validated['thumbnail'] ?? '')) : $existing->thumbnail,
+                'status' => $validated['status'] ?? $existing->status,
                 'updated_at' => now(),
             ]);
         } catch (\Illuminate\Database\QueryException $exception) {

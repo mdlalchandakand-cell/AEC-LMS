@@ -81,6 +81,83 @@ class PaymentApiTest extends TestCase
             $table->decimal('amount', 12, 2);
             $table->string('status', 20)->default('completed');
         });
+
+        Schema::create('audit_logs', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('action', 100);
+            $table->string('entity_type', 80)->nullable();
+            $table->unsignedBigInteger('entity_id')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('metadata')->nullable();
+            $table->dateTime('created_at')->useCurrent();
+        });
+
+        Schema::create('notifications', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('recipient_user_id');
+            $table->unsignedBigInteger('sender_user_id')->nullable();
+            $table->string('title', 180);
+            $table->string('title_bn', 180)->nullable();
+            $table->text('message');
+            $table->text('message_bn')->nullable();
+            $table->string('type', 20)->default('info');
+            $table->string('target_role', 40)->default('all');
+            $table->string('action_url', 80)->nullable();
+            $table->dateTime('created_at')->useCurrent();
+        });
+
+        Schema::create('accounting_accounts', function (Blueprint $table): void {
+            $table->id();
+            $table->string('account_code', 40)->unique();
+            $table->string('account_name', 120);
+            $table->string('account_type', 20);
+            $table->boolean('is_active')->default(true);
+        });
+
+        DB::table('accounting_accounts')->insert([
+            ['account_code' => 'ASSET_BKASH_NAGAD_CLEARING', 'account_name' => 'bKash / Nagad Clearing', 'account_type' => 'asset', 'is_active' => 1],
+            ['account_code' => 'ASSET_BANK_CLEARING', 'account_name' => 'Bank Transfer Clearing', 'account_type' => 'asset', 'is_active' => 1],
+            ['account_code' => 'INCOME_TUITION', 'account_name' => 'Tuition Revenue', 'account_type' => 'income', 'is_active' => 1],
+        ]);
+
+        Schema::create('ledger_transactions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('payment_id')->nullable()->unique();
+            $table->unsignedBigInteger('refund_id')->nullable()->unique();
+            $table->string('reference', 140)->unique();
+            $table->string('description', 255);
+            $table->unsignedBigInteger('created_by')->nullable();
+            $table->dateTime('created_at')->useCurrent();
+        });
+
+        Schema::create('ledger_entries', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('transaction_id');
+            $table->unsignedBigInteger('account_id');
+            $table->decimal('debit', 12, 2)->default(0);
+            $table->decimal('credit', 12, 2)->default(0);
+            $table->char('currency', 3)->default('BDT');
+            $table->dateTime('created_at')->useCurrent();
+        });
+
+        Schema::create('course_enrollments', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->unsignedBigInteger('course_id');
+            $table->unsignedBigInteger('branch_id')->nullable();
+            $table->string('status', 20)->default('pending');
+            $table->unsignedBigInteger('enrolled_by')->nullable();
+            $table->dateTime('enrolled_at')->useCurrent();
+            $table->dateTime('starts_at')->nullable();
+            $table->dateTime('ends_at')->nullable();
+            $table->dateTime('completed_at')->nullable();
+            $table->string('notes', 1000)->nullable();
+            $table->dateTime('created_at')->useCurrent();
+            $table->dateTime('updated_at')->nullable();
+            $table->unique(['user_id', 'course_id']);
+        });
+
     }
 
     private function createUser(string $email, string $role, ?int $branchId = null): int
@@ -337,6 +414,167 @@ class PaymentApiTest extends TestCase
             ->where('user_id', $studentId)
             ->where('trx_id', 'AEC-REUSE-001')
             ->count());
+    }
+
+    public function test_admin_verification_posts_balanced_ledger_and_activates_course_access(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'pending', 'AEC-VERIFY-001');
+
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/verify')
+            ->assertOk()
+            ->assertJsonPath('data.ledger_reference', 'PAY-' . str_pad((string) $paymentId, 10, '0', STR_PAD_LEFT))
+            ->assertJsonPath('data.verified_total', '1250.00')
+            ->assertJsonPath('data.course_access_activated', true);
+
+        $this->assertDatabaseHas('course_payments', [
+            'id' => $paymentId,
+            'status' => 'verified',
+            'reviewed_by' => $adminId,
+        ]);
+        $ledgerId = DB::table('ledger_transactions')->where('payment_id', $paymentId)->value('id');
+        $this->assertNotNull($ledgerId);
+        $this->assertSame(2, DB::table('ledger_entries')->where('transaction_id', $ledgerId)->count());
+        $this->assertSame('1250.00', number_format((float) DB::table('ledger_entries')->where('transaction_id', $ledgerId)->sum('debit'), 2, '.', ''));
+        $this->assertSame('1250.00', number_format((float) DB::table('ledger_entries')->where('transaction_id', $ledgerId)->sum('credit'), 2, '.', ''));
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'active',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $adminId,
+            'action' => 'payment.verified',
+            'entity_id' => $paymentId,
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'recipient_user_id' => $studentId,
+            'sender_user_id' => $adminId,
+            'title' => 'Payment verified',
+        ]);
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/verify')->assertStatus(409);
+        $this->assertSame(1, DB::table('ledger_transactions')->where('payment_id', $paymentId)->count());
+    }
+
+    public function test_partial_payment_verification_does_not_activate_course_access(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1500.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'pending', 'AEC-PARTIAL-001');
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/verify')
+            ->assertOk()
+            ->assertJsonPath('data.course_access_activated', false);
+
+        $this->assertDatabaseMissing('course_enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+        ]);
+    }
+
+    public function test_admin_can_reject_pending_payment_with_reason_audit_and_notification(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin');
+        $studentId = $this->createUser('student@example.test', 'student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'HSC English',
+            'slug' => 'hsc-english',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, null, 'pending', 'AEC-REJECT-001');
+        DB::table('role_permissions')->insert([
+            'role' => 'admin',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/reject', [
+            'reason' => 'Transaction reference could not be verified.',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('course_payments', [
+            'id' => $paymentId,
+            'status' => 'rejected',
+            'reviewed_by' => $adminId,
+            'rejection_reason' => 'Transaction reference could not be verified.',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $adminId,
+            'action' => 'payment.rejected',
+            'entity_id' => $paymentId,
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'recipient_user_id' => $studentId,
+            'sender_user_id' => $adminId,
+            'title' => 'Payment rejected',
+            'type' => 'warning',
+        ]);
+        $this->assertSame(0, DB::table('ledger_transactions')->where('payment_id', $paymentId)->count());
+    }
+
+    public function test_branch_manager_cannot_review_payment_from_another_branch(): void
+    {
+        $managerId = $this->createUser('manager@example.test', 'branch_manager', 10);
+        $studentId = $this->createUser('student@example.test', 'student', 20);
+        $courseId = DB::table('courses')->insertGetId([
+            'branch_id' => 20,
+            'title' => 'Branch 20 Course',
+            'slug' => 'branch-20-course',
+            'price' => '1250.00',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $paymentId = $this->createPayment($studentId, $courseId, 20, 'pending', 'AEC-CROSS-BR-001');
+        DB::table('role_permissions')->insert([
+            'role' => 'branch_manager',
+            'permission_key' => 'payments.manage',
+            'allowed' => 1,
+        ]);
+        $this->login('manager@example.test');
+
+        $this->postJson('/api/v1/payments/' . $paymentId . '/verify')->assertNotFound();
+
+        $this->assertDatabaseHas('course_payments', [
+            'id' => $paymentId,
+            'status' => 'pending',
+        ]);
+        $this->assertSame(0, DB::table('ledger_transactions')->where('payment_id', $paymentId)->count());
     }
 
     public function test_users_without_payment_management_permission_are_forbidden(): void

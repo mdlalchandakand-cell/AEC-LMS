@@ -35,6 +35,58 @@ class CourseProgressController extends Controller
         ]);
     }
 
+    public function contents(Request $request, int $course): JsonResponse
+    {
+        $actor = $request->user();
+        if (!$this->canTrackCourseProgress($actor, $course)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Active course enrollment or subscription course access is required.',
+                'error' => 'Forbidden.',
+            ], 403);
+        }
+
+        $items = DB::table('course_content as links')
+            ->join('content_items as content', 'content.id', '=', 'links.content_item_id')
+            ->leftJoin('course_lesson_progress as progress', function ($join) use ($actor, $course): void {
+                $join->on('progress.content_item_id', '=', 'links.content_item_id')
+                    ->where('progress.course_id', '=', $course)
+                    ->where('progress.user_id', '=', $actor->id);
+            })
+            ->where('links.course_id', $course)
+            ->whereNull('content.deleted_at')
+            ->where('content.status', 'published')
+            ->orderBy('links.sort_order')
+            ->orderBy('content.id')
+            ->get([
+                'content.id',
+                'content.title',
+                'content.content_type',
+                'content.media_url',
+                'content.duration_minutes',
+                'links.sort_order',
+                'progress.is_completed',
+            ])
+            ->map(function (object $item): array {
+                return [
+                    'id' => (int) $item->id,
+                    'title' => $item->title,
+                    'content_type' => $item->content_type,
+                    'media_url' => $item->media_url,
+                    'duration_minutes' => (int) $item->duration_minutes,
+                    'sort_order' => (int) $item->sort_order,
+                    'is_completed' => (bool) $item->is_completed,
+                ];
+            })
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Accessible course content loaded.',
+            'data' => ['items' => $items],
+        ]);
+    }
+
     public function update(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -118,10 +170,31 @@ class CourseProgressController extends Controller
             return false;
         }
 
-        return DB::table('course_enrollments')
+        $now = now('Asia/Dhaka')->format('Y-m-d H:i:s');
+        $enrolled = DB::table('course_enrollments')
             ->where('user_id', $actor->id)
             ->where('course_id', $courseId)
             ->whereIn('status', ['active', 'completed'])
+            ->where(function ($window) use ($now): void {
+                $window->whereNull('ends_at')->orWhere('ends_at', '>', $now);
+            })
+            ->exists();
+        if ($enrolled) {
+            return true;
+        }
+
+        return DB::table('user_subscription_courses as selected')
+            ->join('user_subscriptions as subscriptions', 'subscriptions.id', '=', 'selected.subscription_id')
+            ->where('selected.user_id', $actor->id)
+            ->where('selected.course_id', $courseId)
+            ->where('selected.status', 'active')
+            ->where('subscriptions.status', 'active')
+            ->where(function ($starts) use ($now): void {
+                $starts->whereNull('subscriptions.starts_at')->orWhere('subscriptions.starts_at', '<=', $now);
+            })
+            ->where(function ($ends) use ($now): void {
+                $ends->whereNull('subscriptions.ends_at')->orWhere('subscriptions.ends_at', '>', $now);
+            })
             ->exists();
     }
 }

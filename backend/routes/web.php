@@ -139,6 +139,18 @@ Route::prefix('api/v1/exams')
         Route::delete('/{exam}', [ExamController::class, 'destroy'])->whereNumber('exam')->name('destroy');
     });
 
+Route::prefix('api/v1/question-bank')
+    ->name('api.v1.question-bank.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/', [QuestionBankController::class, 'index'])->name('index');
+        Route::post('/', [QuestionBankController::class, 'store'])->name('store');
+        Route::post('/add-to-exam', [QuestionBankController::class, 'addToExam'])->name('add-to-exam');
+        Route::get('/{question}', [QuestionBankController::class, 'show'])->whereNumber('question')->name('show');
+        Route::patch('/{question}', [QuestionBankController::class, 'update'])->whereNumber('question')->name('update');
+        Route::delete('/{question}', [QuestionBankController::class, 'destroy'])->whereNumber('question')->name('destroy');
+    });
+
 Route::prefix('api/v1/live-classes')
     ->name('api.v1.live-classes.')
     ->middleware(['auth', 'lms.session'])

@@ -83,7 +83,8 @@ export const ExamManagement: React.FC = () => {
       setError(result.error || 'Could not load examinations.');
     }
     if (bankResult.success && Array.isArray(questionItems)) {
-      setBankItems(questionItems
+      const bankRows = questionItems as Array<Record<string, unknown>>;
+      setBankItems(bankRows
         .map(item => isLaravelApiEnabled ? { ...item, question: item.question_text } : item)
         .filter(item => item.status === 'published'));
     }

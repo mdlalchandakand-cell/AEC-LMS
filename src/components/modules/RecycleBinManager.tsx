@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from 'lucide-react';
 
 type RecycleItem = {
@@ -57,9 +58,14 @@ export const RecycleBinManager: React.FC = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await apiClient.recycleBin.getAll();
+      const response = isLaravelApiEnabled
+        ? await laravelApiClient.recycleBin.list()
+        : await apiClient.recycleBin.getAll();
       if (!response.success) throw new Error(response.error || response.message || 'Could not load the recycle bin.');
-      setItems(Array.isArray(response.data) ? response.data as RecycleItem[] : []);
+      const rows = isLaravelApiEnabled
+        ? (response.data as { items?: unknown[] } | undefined)?.items
+        : response.data;
+      setItems(Array.isArray(rows) ? rows as RecycleItem[] : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : (isBn ? 'রিসাইকেল বিন লোড করা যায়নি।' : 'Could not load the recycle bin.'));
     } finally {
@@ -86,7 +92,10 @@ export const RecycleBinManager: React.FC = () => {
     if (!window.confirm(isBn ? 'এই আইটেমটি রিস্টোর করবেন?' : 'Restore this item?')) return;
     setBusy(true); setError(''); setSuccess('');
     try {
-      await apiClient.recycleBin.restore(item.id);
+      const response = isLaravelApiEnabled
+        ? await laravelApiClient.recycleBin.restore(item.id)
+        : await apiClient.recycleBin.restore(item.id);
+      if (!response.success) throw new Error(response.error || response.message || 'Restore failed.');
       setSuccess(isBn ? 'আইটেমটি রিস্টোর হয়েছে।' : 'Item restored.');
       await load();
     } catch (e) {
@@ -99,7 +108,10 @@ export const RecycleBinManager: React.FC = () => {
     if (!window.confirm(isBn ? '৩০ দিনের মেয়াদ শেষ। স্থায়ীভাবে মুছে ফেলবেন?' : 'The retention period has expired. Permanently delete this item?')) return;
     setBusy(true); setError(''); setSuccess('');
     try {
-      await apiClient.recycleBin.permanentDelete(item.id);
+      const response = isLaravelApiEnabled
+        ? await laravelApiClient.recycleBin.permanentlyDelete(item.id)
+        : await apiClient.recycleBin.permanentDelete(item.id);
+      if (!response.success) throw new Error(response.error || response.message || 'Permanent deletion failed.');
       setSuccess(isBn ? 'আইটেমটি স্থায়ীভাবে মুছে ফেলা হয়েছে।' : 'Item permanently deleted.');
       await load();
     } catch (e) {
@@ -148,7 +160,7 @@ export const RecycleBinManager: React.FC = () => {
           <button onClick={() => void load()} disabled={busy || loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> {isBn ? 'রিফ্রেশ' : 'Refresh'}
           </button>
-          {canPurge && (
+          {canPurge && !isLaravelApiEnabled && (
             <button onClick={() => void purgeExpired()} disabled={busy || expiredCount === 0} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">
               <Trash2 className="h-4 w-4" /> {isBn ? 'মেয়াদোত্তীর্ণ আইটেম পরিষ্কার' : 'Purge expired items'} ({expiredCount})
             </button>

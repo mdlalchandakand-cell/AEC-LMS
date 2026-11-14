@@ -121,6 +121,13 @@ class ExamApiTest extends TestCase
             $table->unique(['exam_id', 'sort_order']);
         });
 
+        Schema::create('exam_question_bank_sources', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('exam_id');
+            $table->unsignedBigInteger('exam_question_id');
+            $table->unsignedBigInteger('question_bank_item_id');
+        });
+
         Schema::create('exam_attempts', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('exam_id');

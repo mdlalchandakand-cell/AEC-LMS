@@ -489,8 +489,27 @@ class LiveClassController extends Controller
             'google_meet' => $host === 'meet.google.com',
             'zoom' => $host === 'zoom.us' || str_ends_with($host, '.zoom.us'),
             'teams' => in_array($host, ['teams.microsoft.com', 'teams.live.com'], true),
+            'youtube_unlisted' => $this->validYouTubeStreamUrl($url, $host),
             default => false,
         };
+    }
+
+    private function validYouTubeStreamUrl(string $url, string $host): bool
+    {
+        if (!in_array($host, ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'], true)) {
+            return false;
+        }
+
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        if ($host === 'youtu.be') {
+            return trim($path, '/') !== '';
+        }
+        if ($path === '/watch') {
+            return trim((string) parse_url($url, PHP_URL_QUERY)) !== ''
+                && preg_match('/(?:^|&)v=[A-Za-z0-9_-]{6,}(?:&|$)/', (string) parse_url($url, PHP_URL_QUERY)) === 1;
+        }
+
+        return preg_match('#^/(?:live|embed)/[A-Za-z0-9_-]{6,}#', $path) === 1;
     }
 
     private function validHttpsUrl(string $url): bool
@@ -568,17 +587,55 @@ class LiveClassController extends Controller
         string $messageBn,
         string $type
     ): void {
-        $query = DB::table('course_enrollments as enrollments')
-            ->join('users', 'users.id', '=', 'enrollments.user_id')
-            ->where('enrollments.course_id', $courseId)
-            ->whereIn('enrollments.status', ['active', 'completed'])
-            ->where('users.is_active', 1);
+        $now = now('Asia/Dhaka')->format('Y-m-d H:i:s');
+        $query = DB::table('users')
+            ->where('users.role', 'student')
+            ->where('users.is_active', 1)
+            ->where(function ($access) use ($courseId, $branchId, $now): void {
+                $access->whereExists(function ($enrollment) use ($courseId, $branchId): void {
+                    $enrollment->selectRaw('1')
+                        ->from('course_enrollments as enrollments')
+                        ->whereColumn('enrollments.user_id', 'users.id')
+                        ->where('enrollments.course_id', $courseId)
+                        ->whereIn('enrollments.status', ['active', 'completed'])
+                        ->where(function ($scope) use ($branchId): void {
+                            if ($branchId !== null) {
+                                $scope->where('enrollments.branch_id', $branchId);
+                            }
+                        });
+                })->orWhereExists(function ($subscription) use ($courseId, $branchId, $now): void {
+                    $subscription->selectRaw('1')
+                        ->from('user_subscription_courses as selected')
+                        ->join('user_subscriptions', 'user_subscriptions.id', '=', 'selected.subscription_id')
+                        ->whereColumn('selected.user_id', 'users.id')
+                        ->where('selected.course_id', $courseId)
+                        ->where('selected.status', 'active')
+                        ->where('user_subscriptions.status', 'active')
+                        ->where(function ($scope) use ($branchId): void {
+                            if ($branchId !== null) {
+                                $scope->where('selected.branch_id', $branchId);
+                            }
+                        })
+                        ->where(function ($active): void {
+                            $active->whereNull('selected.branch_id')
+                                ->orWhereExists(function ($exists): void {
+                                    $exists->selectRaw('1')
+                                        ->from('branches as active_subscription_branch')
+                                        ->whereColumn('active_subscription_branch.id', 'selected.branch_id')
+                                        ->where('active_subscription_branch.is_active', 1);
+                                });
+                        })
+                        ->where(function ($starts) use ($now): void {
+                            $starts->whereNull('user_subscriptions.starts_at')
+                                ->orWhere('user_subscriptions.starts_at', '<=', $now);
+                        })
+                        ->where(function ($ends) use ($now): void {
+                            $ends->whereNull('user_subscriptions.ends_at')
+                                ->orWhere('user_subscriptions.ends_at', '>', $now);
+                        });
+                });
+            });
 
-        if ($branchId !== null) {
-            $query->where('enrollments.branch_id', $branchId);
-        }
-
-        $now = now();
         $rows = $query->pluck('users.id')->unique()->map(fn ($recipientId): array => [
             'recipient_user_id' => (int) $recipientId,
             'sender_user_id' => $senderId,
@@ -589,11 +646,12 @@ class LiveClassController extends Controller
             'type' => $type,
             'target_role' => 'student',
             'action_url' => 'live_classes',
-            'created_at' => $now,
+            'created_at' => now(),
         ])->all();
 
         if ($rows !== []) {
             DB::table('notifications')->insert($rows);
         }
     }
+
 }

@@ -155,8 +155,8 @@ class QuestionBankController extends Controller
 
         $result = DB::transaction(function () use ($request, $actor, $validated): array|JsonResponse {
             $exam = DB::table('exams')->where('id', $validated['exam_id'])->whereNull('deleted_at')->lockForUpdate()->first();
-            if (!$exam) {
-                return response()->json(['success' => false, 'message' => 'Exam not found.', 'error' => 'Not found.'], 404);
+            if (!$exam || !$this->canManageExam($actor, $exam)) {
+                return response()->json(['success' => false, 'message' => 'Exam not found or outside your permitted scope.', 'error' => 'Not found.'], 404);
             }
             if ($exam->status !== 'draft') {
                 return response()->json(['success' => false, 'message' => 'Question bank items can only be added to draft exams.', 'error' => 'Conflict.'], 409);
@@ -178,6 +178,7 @@ class QuestionBankController extends Controller
                 ->whereIn('id', $ids)
                 ->whereNull('deleted_at')
                 ->where('status', 'published')
+                ->lockForUpdate()
                 ->get()
                 ->keyBy('id');
 
@@ -287,6 +288,52 @@ class QuestionBankController extends Controller
             'status' => $row->status,
             'created_at' => $row->created_at,
         ];
+    }
+
+    private function canManageExam($actor, object $exam): bool
+    {
+        if (!LmsPermission::allows($actor, 'exams.manage')) {
+            return false;
+        }
+        if ($actor->role === 'branch_manager') {
+            if (!$this->hasActiveBranch($actor->branch_id) || $exam->course_id === null) {
+                return false;
+            }
+            $course = DB::table('courses')
+                ->where('id', $exam->course_id)
+                ->whereNull('deleted_at')
+                ->first(['branch_id']);
+            return $course !== null && (int) $course->branch_id === (int) $actor->branch_id;
+        }
+        if ($actor->role === 'teacher') {
+            if ($exam->course_id === null) {
+                return false;
+            }
+            return DB::table('courses')
+                ->where('id', $exam->course_id)
+                ->whereNull('deleted_at')
+                ->where(function ($scope) use ($actor): void {
+                    $scope->where('created_by', $actor->id)
+                        ->orWhereExists(function ($assignment) use ($actor): void {
+                            $assignment->selectRaw('1')
+                                ->from('teacher_course_assignments')
+                                ->whereColumn('teacher_course_assignments.course_id', 'courses.id')
+                                ->where('teacher_course_assignments.teacher_user_id', $actor->id)
+                                ->where('teacher_course_assignments.is_active', 1);
+                        });
+                })
+                ->exists();
+        }
+
+        return true;
+    }
+
+    private function hasActiveBranch(mixed $branchId): bool
+    {
+        return $branchId !== null && DB::table('branches')
+            ->where('id', $branchId)
+            ->where('is_active', 1)
+            ->exists();
     }
 
     private function audit(Request $request, int $actorId, string $event, int $entityId, array $metadata): void

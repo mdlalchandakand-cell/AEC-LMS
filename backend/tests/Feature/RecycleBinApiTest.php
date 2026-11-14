@@ -285,6 +285,28 @@ class RecycleBinApiTest extends TestCase
         }
     }
 
+    public function test_bulk_purge_removes_only_expired_unlinked_items(): void
+    {
+        $this->createUser('admin@example.test', 'super_admin');
+        $safeCourse = $this->createCourse(10, 'bulk-safe');
+        $linkedCourse = $this->createCourse(10, 'bulk-linked');
+        $safeItem = $this->createRecycleItem('course', $safeCourse, 10, 31);
+        $linkedItem = $this->createRecycleItem('course', $linkedCourse, 10, 31);
+        DB::table('course_enrollments')->insert(['course_id' => $linkedCourse]);
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/recycle-bin/purge-expired')
+            ->assertOk()
+            ->assertJsonPath('data.purged', 1)
+            ->assertJsonPath('data.checked', 2)
+            ->assertJsonCount(1, 'data.blocked');
+
+        $this->assertDatabaseMissing('courses', ['id' => $safeCourse]);
+        $this->assertDatabaseHas('courses', ['id' => $linkedCourse]);
+        $this->assertDatabaseHas('recycle_bin_items', ['id' => $safeItem, 'status' => 'purged']);
+        $this->assertDatabaseHas('recycle_bin_items', ['id' => $linkedItem, 'status' => 'active']);
+    }
+
     public function test_permanent_delete_retains_course_when_foreign_key_references_exist(): void
     {
         $this->createUser('admin@example.test', 'super_admin');

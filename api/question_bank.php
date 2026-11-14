@@ -154,23 +154,23 @@ if ($action === 'add_to_exam') {
         $cleanIds[] = $id;
     }
 
-    $examStmt = $db->prepare("SELECT id, total_marks, status FROM exams WHERE id = ? AND deleted_at IS NULL");
-    $examStmt->execute([$examId]);
-    $exam = $examStmt->fetch();
-    if (!$exam) aec_fail('Exam not found.', 404);
-    if ($exam['status'] !== 'draft') aec_fail('Question bank items can only be added to draft exams.', 409);
-    $attemptCheck = $db->prepare('SELECT COUNT(*) FROM exam_attempts WHERE exam_id = ?');
-    $attemptCheck->execute([$examId]);
-    if ((int)$attemptCheck->fetchColumn() > 0) aec_fail('Questions cannot be changed after an attempt has started.', 409);
-
-    $existingSource = $db->prepare('SELECT COUNT(*) FROM exam_question_bank_sources WHERE exam_id = ? AND question_bank_item_id = ?');
-    foreach ($cleanIds as $questionBankId) {
-        $existingSource->execute([$examId, $questionBankId]);
-        if ((int)$existingSource->fetchColumn() > 0) aec_fail('A selected question is already linked to this exam.', 409);
-    }
-
     $db->beginTransaction();
     try {
+        $examStmt = $db->prepare("SELECT id, total_marks, status FROM exams WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE");
+        $examStmt->execute([$examId]);
+        $exam = $examStmt->fetch();
+        if (!$exam) aec_fail('Exam not found.', 404);
+        if ($exam['status'] !== 'draft') aec_fail('Question bank items can only be added to draft exams.', 409);
+        $attemptCheck = $db->prepare('SELECT COUNT(*) FROM exam_attempts WHERE exam_id = ?');
+        $attemptCheck->execute([$examId]);
+        if ((int)$attemptCheck->fetchColumn() > 0) aec_fail('Questions cannot be changed after an attempt has started.', 409);
+
+        $existingSource = $db->prepare('SELECT COUNT(*) FROM exam_question_bank_sources WHERE exam_id = ? AND question_bank_item_id = ?');
+        foreach ($cleanIds as $questionBankId) {
+            $existingSource->execute([$examId, $questionBankId]);
+            if ((int)$existingSource->fetchColumn() > 0) aec_fail('A selected question is already linked to this exam.', 409);
+        }
+
         $existingOrder = $db->prepare('SELECT COALESCE(MAX(sort_order), -1) FROM exam_questions WHERE exam_id = ?');
         $existingOrder->execute([$examId]);
         $sortOrder = (int)$existingOrder->fetchColumn() + 1;

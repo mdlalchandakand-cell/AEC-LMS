@@ -73,6 +73,17 @@ class EnrollmentApiTest extends TestCase
             $table->unique(['user_id', 'course_id']);
         });
 
+        Schema::create('audit_logs', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('action', 100);
+            $table->string('entity_type', 80)->nullable();
+            $table->unsignedBigInteger('entity_id')->nullable();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('metadata')->nullable();
+            $table->dateTime('created_at')->useCurrent();
+        });
+
         DB::table('role_permissions')->insert([
             ['role' => 'admin', 'permission_key' => 'enrollments.manage', 'allowed' => 1],
             ['role' => 'branch_manager', 'permission_key' => 'enrollments.manage', 'allowed' => 1],
@@ -224,6 +235,153 @@ class EnrollmentApiTest extends TestCase
         $this->getJson('/api/v1/enrollments')
             ->assertForbidden()
             ->assertJsonPath('success', false);
+    }
+
+    public function test_admin_can_create_enrollment_and_audit_the_action(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin', 'LMS Admin');
+        $studentId = $this->createUser('student@example.test', 'student', 'Student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'Published Course',
+            'slug' => 'published-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('admin@example.test');
+
+        $this->postJson('/api/v1/enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'pending',
+            'notes' => 'Manual admission',
+        ])->assertCreated()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('course_enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'pending',
+            'enrolled_by' => $adminId,
+            'notes' => 'Manual admission',
+        ]);
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $adminId,
+            'action' => 'enrollment.created',
+            'entity_type' => 'course_enrollment',
+        ]);
+    }
+
+    public function test_branch_manager_cannot_create_enrollment_outside_their_branch(): void
+    {
+        DB::table('branches')->insert([
+            ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
+        ]);
+        $this->createUser('manager@example.test', 'branch_manager', 'Branch Manager', 10);
+        $studentId = $this->createUser('student@example.test', 'student', 'Student', 20);
+        $courseId = DB::table('courses')->insertGetId([
+            'branch_id' => 20,
+            'title' => 'Branch 20 Course',
+            'slug' => 'branch-20-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->login('manager@example.test');
+
+        $this->postJson('/api/v1/enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+        ])->assertForbidden();
+
+        $this->assertDatabaseMissing('course_enrollments', [
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+        ]);
+    }
+
+    public function test_admin_can_update_enrollment_and_audit_changed_fields(): void
+    {
+        $adminId = $this->createUser('admin@example.test', 'admin', 'LMS Admin');
+        $studentId = $this->createUser('student@example.test', 'student', 'Student');
+        $courseId = DB::table('courses')->insertGetId([
+            'title' => 'Published Course',
+            'slug' => 'published-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $enrollmentId = (int) DB::table('course_enrollments')->insertGetId([
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'status' => 'pending',
+            'enrolled_by' => $adminId,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+        ]);
+
+        $this->login('admin@example.test');
+
+        $this->patchJson('/api/v1/enrollments/' . $enrollmentId, [
+            'status' => 'completed',
+            'starts_at' => '2026-11-01 09:00:00',
+            'ends_at' => '2026-11-30 17:00:00',
+            'notes' => 'Completed after review',
+        ])->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('course_enrollments', [
+            'id' => $enrollmentId,
+            'status' => 'completed',
+            'notes' => 'Completed after review',
+        ]);
+        $this->assertNotNull(DB::table('course_enrollments')->where('id', $enrollmentId)->value('completed_at'));
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $adminId,
+            'action' => 'enrollment.updated',
+            'entity_id' => $enrollmentId,
+        ]);
+    }
+
+    public function test_branch_manager_cannot_update_another_branch_enrollment(): void
+    {
+        DB::table('branches')->insert([
+            ['id' => 10, 'code' => 'BR-10', 'name' => 'Branch 10', 'is_active' => 1],
+            ['id' => 20, 'code' => 'BR-20', 'name' => 'Branch 20', 'is_active' => 1],
+        ]);
+        $managerId = $this->createUser('manager@example.test', 'branch_manager', 'Branch Manager', 10);
+        $studentId = $this->createUser('student@example.test', 'student', 'Student', 20);
+        $courseId = DB::table('courses')->insertGetId([
+            'branch_id' => 20,
+            'title' => 'Branch 20 Course',
+            'slug' => 'branch-20-course',
+            'status' => 'published',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $enrollmentId = (int) DB::table('course_enrollments')->insertGetId([
+            'user_id' => $studentId,
+            'course_id' => $courseId,
+            'branch_id' => 20,
+            'status' => 'pending',
+            'enrolled_by' => $managerId,
+            'enrolled_at' => now(),
+            'created_at' => now(),
+        ]);
+
+        $this->login('manager@example.test');
+
+        $this->patchJson('/api/v1/enrollments/' . $enrollmentId, [
+            'status' => 'active',
+        ])->assertNotFound();
+
+        $this->assertDatabaseHas('course_enrollments', [
+            'id' => $enrollmentId,
+            'status' => 'pending',
+        ]);
     }
 
     public function test_admin_enrollment_filters_are_validated(): void

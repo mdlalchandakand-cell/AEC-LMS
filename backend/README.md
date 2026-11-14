@@ -48,6 +48,18 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 
 These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. The create/update actions do not process payments or grant access based on payment status. Payment verification and gateway workflows remain on the legacy API until their write rules and parity tests are migrated.
 
+## Laravel teacher commission and payout API
+
+- `GET /api/v1/teacher-commissions/summary` — teachers see their own commission totals; authorized payout managers can view a selected teacher or the overall summary.
+- `GET /api/v1/teacher-commissions/assignments` — lists course/teacher commission assignments.
+- `POST /api/v1/teacher-commissions/assignments` and `POST /api/v1/teacher-commissions/assignments/{id}/unassign` — manage assignment periods and enforce a combined course commission cap of 100%.
+- `GET /api/v1/teacher-commissions/payouts` — teachers see their own payout requests; authorized payout managers can review permitted requests.
+- `POST /api/v1/teacher-commissions/payouts` — teachers request a payout only within their currently available commission balance.
+- `POST /api/v1/teacher-commissions/payouts/{id}/review` — authorized staff approve or reject pending requests; approval recalculates net revenue and available balance.
+- `POST /api/v1/teacher-commissions/payouts/{id}/mark-paid` — marks an approved request paid only with an external provider/bank reference; use only after the transfer is confirmed.
+
+Commission calculations use verified/refunded course payments within the assignment period and subtract completed refunds. Pending/approved payouts reserve balance; paid payouts reduce it. Assignment and payout transitions are audited, and payout status changes notify the teacher.
+
 ## Laravel guardian API
 
 - `POST /api/v1/guardians/requests` — a guardian requests a link using the student's account email; same-branch matching and a per-email/IP rate limit apply.
@@ -100,4 +112,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, lesson progress, consent-based guardian links and student summaries, teacher commission assignments and payouts, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

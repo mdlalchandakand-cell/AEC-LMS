@@ -94,6 +94,13 @@ class LaravelApiService {
     archivePlan: (planId: number) => this.request('/api/v1/subscriptions/plans/' + planId, { method: 'DELETE' }),
   };
 
+  public enrollments = {
+    my: (perPage = 12) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/enrollments/my?per_page=' + encodeURIComponent(String(perPage))),
+    list: (status = '', perPage = 100) => this.request<{ items: unknown[]; pagination: Record<string, number> }>('/api/v1/enrollments?per_page=' + encodeURIComponent(String(perPage)) + (status ? '&status=' + encodeURIComponent(status) : '')),
+    create: (payload: { user_id: number; course_id: number; status?: 'pending' | 'active' | 'completed' | 'cancelled'; branch_id?: number | null; notes?: string }) => this.request<{ id: number }>('/api/v1/enrollments', { method: 'POST', body: JSON.stringify(payload) }),
+    update: (id: number, payload: { status?: 'pending' | 'active' | 'completed' | 'cancelled'; starts_at?: string | null; ends_at?: string | null; notes?: string }) => this.request<{ id: number }>('/api/v1/enrollments/' + id, { method: 'PATCH', body: JSON.stringify(payload) }),
+  };
+
   public liveClasses = {
     list: () => this.request<{ items: unknown[] }>('/api/v1/live-classes'),
     create: (payload: Record<string, unknown>) => this.request<{ id: number }>('/api/v1/live-classes', { method: 'POST', body: JSON.stringify(payload) }),

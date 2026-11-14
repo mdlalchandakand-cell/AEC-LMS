@@ -161,15 +161,14 @@ class CourseProgressController extends Controller
         if (!$course) {
             return false;
         }
+        if (LmsPermission::allows($actor, 'courses.manage')) {
+            return true;
+        }
         if ($course->branch_id !== null && !DB::table('branches')
             ->where('id', $course->branch_id)
             ->where('is_active', 1)
             ->exists()) {
             return false;
-        }
-
-        if (LmsPermission::allows($actor, 'courses.manage')) {
-            return true;
         }
 
         if ($course->status !== 'published') {

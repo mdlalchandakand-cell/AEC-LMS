@@ -48,6 +48,11 @@ The catalog uses the existing `courses`, `course_categories`, `content_items`, a
 
 These routes require an authenticated Laravel session with a current `session_version`. Student responses contain course and enrollment status details only; the administrative list includes student identity and internal notes. The create/update actions do not process payments or grant access based on payment status. Payment verification and gateway workflows remain on the legacy API until their write rules and parity tests are migrated.
 
+## Laravel course progress API
+
+- `GET /api/v1/courses/{id}/progress` — returns lesson completion and private notes for the signed-in user only; students need an active/completed enrollment, while course managers may access the endpoint under their permission.
+- `POST /api/v1/progress/lessons` — records completion and notes only for a published lesson linked to the course; repeated updates upsert the same user/course/lesson record rather than creating duplicates.
+
 ## Laravel live class API
 
 - `GET /api/v1/live-classes` — students see only non-cancelled classes for active/completed enrollments; teachers see their own classes; administrators and branch managers see permission-scoped schedules.
@@ -83,4 +88,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, lesson progress, payment history, manual payment submission, payment verification, rejection, provider-confirmed refund recording, ledger reporting, reconciliation and live-class management endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.

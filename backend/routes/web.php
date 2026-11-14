@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\V1\TeacherCommissionController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\QuestionBankController;
 use App\Http\Controllers\Api\V1\RecycleBinController;
+use App\Http\Controllers\Api\V1\SubscriptionController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -172,6 +173,22 @@ Route::prefix('api/v1/recycle-bin')
         Route::get('/', [RecycleBinController::class, 'index'])->name('index');
         Route::post('/{item}/restore', [RecycleBinController::class, 'restore'])->whereNumber('item')->name('restore');
         Route::post('/{item}/permanent-delete', [RecycleBinController::class, 'permanentlyDelete'])->whereNumber('item')->name('permanent-delete');
+    });
+
+Route::prefix('api/v1/subscriptions')
+    ->name('api.v1.subscriptions.')
+    ->middleware(['auth', 'lms.session'])
+    ->group(function (): void {
+        Route::get('/plans', [SubscriptionController::class, 'plans'])->name('plans');
+        Route::post('/plans', [SubscriptionController::class, 'storePlan'])->name('plans.store');
+        Route::put('/plans/{plan}', [SubscriptionController::class, 'updatePlan'])->whereNumber('plan')->name('plans.update');
+        Route::delete('/plans/{plan}', [SubscriptionController::class, 'deletePlan'])->whereNumber('plan')->name('plans.destroy');
+        Route::get('/my', [SubscriptionController::class, 'my'])->name('my');
+        Route::get('/my/access', [SubscriptionController::class, 'access'])->name('my.access');
+        Route::post('/{subscription}/cancel', [SubscriptionController::class, 'cancel'])->whereNumber('subscription')->name('cancel');
+        Route::get('/', [SubscriptionController::class, 'index'])->name('index');
+        Route::post('/', [SubscriptionController::class, 'store'])->name('store');
+        Route::post('/{subscription}/review', [SubscriptionController::class, 'review'])->whereNumber('subscription')->name('review');
     });
 
 Route::prefix('api/v1/payments')

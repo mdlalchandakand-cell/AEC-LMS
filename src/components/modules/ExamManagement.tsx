@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Archive, BookPlus, Edit2, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import { useLms } from '../../context/LmsContext';
 import { apiClient } from '../../services/apiClient';
+import { isLaravelApiEnabled, laravelApiClient } from '../../services/laravelApiClient';
 
 type ExamStatus = 'draft' | 'published' | 'archived';
 
@@ -65,15 +66,26 @@ export const ExamManagement: React.FC = () => {
 
   const loadExams = useCallback(async () => {
     setLoading(true);
-    const [result, bankResult] = await Promise.all([apiClient.exams.getAll(), apiClient.questionBank.getAll()]);
-    if (result.success && Array.isArray(result.data)) {
-      setExams(result.data as unknown as ExamRecord[]);
+    const [result, bankResult] = await Promise.all([
+      isLaravelApiEnabled ? laravelApiClient.exams.list() : apiClient.exams.getAll(),
+      isLaravelApiEnabled ? laravelApiClient.questionBank.list() : apiClient.questionBank.getAll(),
+    ]);
+    const examItems = isLaravelApiEnabled
+      ? (result.data as { items?: unknown[] } | undefined)?.items
+      : result.data;
+    const questionItems = isLaravelApiEnabled
+      ? (bankResult.data as { items?: unknown[] } | undefined)?.items
+      : bankResult.data;
+    if (result.success && Array.isArray(examItems)) {
+      setExams(examItems as ExamRecord[]);
       setError('');
     } else {
       setError(result.error || 'Could not load examinations.');
     }
-    if (bankResult.success && Array.isArray(bankResult.data)) {
-      setBankItems(bankResult.data.filter(item => item.status === 'published'));
+    if (bankResult.success && Array.isArray(questionItems)) {
+      setBankItems(questionItems
+        .map(item => isLaravelApiEnabled ? { ...item, question: item.question_text } : item)
+        .filter(item => item.status === 'published'));
     }
     setLoading(false);
   }, []);
@@ -93,7 +105,9 @@ export const ExamManagement: React.FC = () => {
   const editExam = async (exam: ExamRecord) => {
     setError('');
     setNotice('');
-    const result = await apiClient.exams.getById(exam.id);
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.exams.getById(exam.id)
+      : await apiClient.exams.getById(exam.id);
     if (!result.success || !result.data) {
       setError(result.error || 'Could not load the examination.');
       return;
@@ -174,7 +188,9 @@ export const ExamManagement: React.FC = () => {
 
     let examId = editingId;
     if (examId === null) {
-      const created = await apiClient.exams.create(payload);
+      const created = isLaravelApiEnabled
+        ? await laravelApiClient.exams.create(payload)
+        : await apiClient.exams.create(payload);
       if (!created.success || !created.data?.id) {
         setError(created.error || 'Could not create the examination.');
         setSaving(false);
@@ -183,7 +199,9 @@ export const ExamManagement: React.FC = () => {
       examId = created.data.id;
       setEditingId(examId);
     } else {
-      const updated = await apiClient.exams.update(examId, payload);
+      const updated = isLaravelApiEnabled
+        ? await laravelApiClient.exams.update(examId, payload)
+        : await apiClient.exams.update(examId, payload);
       if (!updated.success) {
         setError(updated.error || 'Could not update examination settings.');
         setSaving(false);
@@ -198,14 +216,18 @@ export const ExamManagement: React.FC = () => {
       marks: Number(question.marks),
       explanation: question.explanation.trim(),
     }));
-    const savedQuestions = await apiClient.exams.saveQuestions(examId, cleanQuestions);
+    const savedQuestions = isLaravelApiEnabled
+      ? await laravelApiClient.exams.saveQuestions(examId, cleanQuestions)
+      : await apiClient.exams.saveQuestions(examId, cleanQuestions);
     if (!savedQuestions.success) {
       setError(savedQuestions.error || 'Exam settings were saved, but questions could not be saved. Review and retry.');
       setSaving(false);
       return;
     }
     if (selectedBankIds.length > 0) {
-      const imported = await apiClient.questionBank.addToExam(examId, selectedBankIds);
+      const imported = isLaravelApiEnabled
+        ? await laravelApiClient.questionBank.addToExam(examId, selectedBankIds)
+        : await apiClient.questionBank.addToExam(examId, selectedBankIds);
       if (!imported.success) {
         setError(imported.error || 'Manual questions were saved, but reusable questions could not be imported.');
         setSaving(false);
@@ -214,7 +236,9 @@ export const ExamManagement: React.FC = () => {
     }
 
     if (desiredStatus !== 'draft') {
-      const published = await apiClient.exams.update(examId, { ...payload, status: desiredStatus });
+      const published = isLaravelApiEnabled
+        ? await laravelApiClient.exams.update(examId, { ...payload, status: desiredStatus })
+        : await apiClient.exams.update(examId, { ...payload, status: desiredStatus });
       if (!published.success) {
         setError(published.error || 'Questions were saved, but the exam status could not be updated.');
         setSaving(false);
@@ -234,7 +258,9 @@ export const ExamManagement: React.FC = () => {
 
   const archiveExam = async (exam: ExamRecord) => {
     if (!window.confirm(`Archive "${exam.title}"? Exams with attempts cannot be archived.`)) return;
-    const result = await apiClient.exams.delete(exam.id);
+    const result = isLaravelApiEnabled
+      ? await laravelApiClient.exams.archive(exam.id)
+      : await apiClient.exams.delete(exam.id);
     if (!result.success) {
       setError(result.error || 'Could not archive the examination.');
       return;

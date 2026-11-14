@@ -132,7 +132,7 @@ class ContentManagementController extends Controller
             return response()->json(['success' => false, 'message' => 'Media URL must be a valid HTTPS URL.', 'error' => 'Validation failed.'], 422);
         }
 
-        $id = DB::transaction(function () use ($actor, $validated, $mediaUrl): int {
+        $id = DB::transaction(function () use ($request, $actor, $validated, $mediaUrl): int {
             $id = (int) DB::table('content_items')->insertGetId([
                 'title' => trim($validated['title']),
                 'content_type' => $validated['content_type'],

@@ -56,6 +56,8 @@ These routes require an authenticated Laravel session with a current `session_ve
 - `POST /api/v1/payments/{id}/verify` — permission-checks and locks a pending payment, posts balanced debit/credit ledger entries, records an audit event and student notification, and activates course enrollment only after the net verified total covers the course fee.
 - `POST /api/v1/payments/{id}/reject` — requires a non-blank reason, updates only a pending payment, and records an audit event and student notification.
 - `POST /api/v1/payments/{id}/refund` — records a refund only after the external provider has completed it; requires the provider refund reference, amount and reason, prevents over-refunds, posts a balanced reversal journal, updates payment status, and cancels course access when net paid fees fall below the course fee.
+- `GET /api/v1/payments/ledger` — returns payment and refund journal entries with account, student and course context; branch managers see only their assigned branch.
+- `GET /api/v1/payments/reconcile` — checks journal entry count and debit/credit equality, returning any discrepancies within the caller's permitted branch scope.
 
 Amounts and refund totals are serialized consistently as two-decimal BDT values. Provider callbacks and automated provider-side refund execution remain outside this Laravel slice; the refund endpoint records a provider-confirmed transaction and does not call bKash, Nagad or a bank API.
 

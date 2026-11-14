@@ -53,8 +53,10 @@ These routes require an authenticated Laravel session with a current `session_ve
 - `GET /api/v1/payments/my` — returns only the signed-in student's payment history and completed refund totals.
 - `GET /api/v1/payments` — requires the `payments.manage` permission; branch managers must be assigned to an active branch and see only that branch's payments.
 - `POST /api/v1/payments` — lets a student submit a manual bKash, Nagad or bank-transfer payment for a published course. The API validates the amount against the remaining course fee, counts pending/verified payments net of completed refunds, checks active branch ownership, and prevents reuse of a method/transaction reference.
+- `POST /api/v1/payments/{id}/verify` — permission-checks and locks a pending payment, posts balanced debit/credit ledger entries, records an audit event and student notification, and activates course enrollment only after the net verified total covers the course fee.
+- `POST /api/v1/payments/{id}/reject` — requires a non-blank reason, updates only a pending payment, and records an audit event and student notification.
 
-Amounts and refund totals are serialized consistently as two-decimal BDT values. Provider callbacks, manual payment verification/rejection, ledger posting, automated enrollment activation and refund creation remain on the legacy API until those financial write workflows and gateway-specific tests are migrated.
+Amounts and refund totals are serialized consistently as two-decimal BDT values. Provider callbacks and provider-confirmed refund processing remain on the legacy API until those workflows and gateway-specific tests are migrated.
 
 Authentication uses a separate `aec_laravel_session` cookie and does not reuse or overwrite the legacy `AEC_LMS_SESSION` cookie. Disabled accounts are rejected, login attempts are limited per email/IP, and a changed `session_version` invalidates an existing Laravel session. Role, branch, active-status and session-version fields are not mass assignable.
 
@@ -69,4 +71,4 @@ Do not remove or redirect the existing `/api/*.php` endpoints until each matchin
 4. feature tests for success, validation, forbidden access and cross-tenant access;
 5. parity verification against the legacy endpoint.
 
-The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, payment history and manual payment submission endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
+The current Laravel slice establishes the framework runtime plus tested authentication, public course catalog, enrollment read/create/update, payment history, manual payment submission, payment verification and rejection endpoints. It is not a claim that the legacy PHP modules have already been fully migrated. Existing production data must not be altered by the initial framework boot.
